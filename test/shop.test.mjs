@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileStore} from '../shop-store.mjs';
 import {createShopService} from '../shop-service.mjs';
 import {shopHandler} from '../shop-api.mjs';
-import {progress,elapsed,schedule,duration} from '../public/shop-state.js';
+import {progress,elapsed,schedule,duration,production,finishingStages,stageStatus} from '../public/shop-state.js';
 import {calculate} from '../calculations.mjs';
 
 const opening={id:'opening-1',name:'Front window',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
@@ -197,4 +197,64 @@ test('invalid deadlines are validation errors and expired pairing codes cannot c
   await assert.rejects(f.service.run('publish',{job,due:'2026-99-99'},owner),e=>e.status===400);
   const {code}=await f.service.run('pairing',{name:'Expired code test'},owner);f.advance(11*60000);
   assert.equal((await f.service.run('pair',{code})).status,401);
+});
+
+test('shop jobs advance through every production stage only after all required work is complete',async t=>{
+  const f=await fixture(t,{local:false}),owner=await ownerCookie(f.service),shop=await paired(f.service,owner);
+  let {job:j}=await f.service.run('publish',{job:{...job,openings:[opening,{...opening,id:'opening-2',name:'Second window'}]}},owner);
+  assert.equal(production(j).key,'waiting');
+  await assert.rejects(f.service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'complete'},shop),/every cut line/);
+  ({job:j}=await f.service.run('timer',{id:j.id,version:j.version,action:'start'},shop));
+  ({job:j}=await f.service.run('timer',{id:j.id,version:j.version,action:'pause'},shop));
+  assert.equal(production(j).key,'cutting'); // Pausing at zero elapsed time must not send it back to Waiting.
+  for(const line of j.openings[0].lines)({job:j}=await f.service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'},shop));
+  assert.equal(production(j).key,'cutting'); // Every opening counts.
+  const lastLines=j.openings[1].lines;
+  for(const line of lastLines)({job:j}=await f.service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'},shop));
+  assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
+  await assert.rejects(f.service.run('stage',{id:j.id,version:j.version,stage:'building',status:'complete'},shop),/preceding/);
+  for(const [index,stage] of finishingStages.entries()){
+    ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'partial'},shop));
+    assert.equal(production(j).key,stage.key);assert.equal(stageStatus(j,stage.key),'partial');
+    f.advance(60000);
+    ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'complete'},shop));
+    assert.equal(production(j).key,finishingStages[index+1]?.key||'complete');
+    assert.equal(j.production[stage.key].by,'Saw iPad');assert.equal(j.production[stage.key].completedAt,f.time());
+  }
+  assert.equal(j.productionCompletedAt,f.time());
+  const second=createShopService({store:fileStore(f.path),password,secret,now:f.time});
+  assert.equal(production((await second.run('dashboard',{},owner)).jobs[0]).key,'complete');
+  const handler=shopHandler(second),response=await handler(new Request('https://shop.example/api/shop/stage',{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_shop='+shop.shop},body:JSON.stringify({id:j.id,version:j.version,stage:'hinging',status:'complete'})}));
+  assert.equal(response.status,200);assert.equal((await response.json()).job.version,j.version);
+  await assert.rejects(second.run('stage',{id:j.id,version:j.version,stage:'hinging',status:'complete'}),e=>e.status===401);
+});
+
+test('production corrections require confirmation, invalidate later checks and reject stale updates',async t=>{
+  const {service}=await fixture(t);let {job:j}=await service.run('publish',{job});
+  const lineId=j.openings[0].lines[0].id;
+  ({job:j}=await service.run('line',{id:j.id,version:j.version,lineId,status:'partial',completed:0,outOfMaterial:true}));
+  assert.equal(production(j).key,'cutting');
+  for(const line of j.openings[0].lines)({job:j}=await service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'}));
+  for(const stage of finishingStages)({job:j}=await service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'complete'}));
+  await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'partial'}),/Confirm/);
+  const previousVersion=j.version;
+  ({job:j}=await service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'partial',resetFollowing:true}));
+  assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
+  for(const key of ['boring','building','hinging'])assert.equal(stageStatus(j,key),'not-started');
+  await assert.rejects(service.run('stage',{id:j.id,version:previousVersion,stage:'capping',status:'complete'}),e=>e.status===409);
+  await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'__proto__',status:'complete'}),e=>e.status===400);
+  await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'bogus'}),e=>e.status===400);
+  await assert.rejects(service.run('line',{id:j.id,version:j.version,lineId,status:'not-cut'}),/Confirm/);
+  ({job:j}=await service.run('line',{id:j.id,version:j.version,lineId,status:'not-cut',resetFollowing:true}));
+  assert.equal(production(j).key,'cutting');assert.deepEqual(j.production,{});
+  ({job:j}=await service.run('line',{id:j.id,version:j.version,lineId,status:'cut'}));
+  assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
+});
+
+test('existing cut sheets enter Capping without assuming finishing work was completed',()=>{
+  const legacy={openings:[{lines:[{quantity:2,completed:2,status:'cut'}]}],elapsedMs:300000,completedAt:12345};
+  assert.equal(production(legacy).key,'capping');
+  const partial={...legacy,openings:[{lines:[{quantity:2,completed:1,status:'partial'}]}]};
+  assert.equal(production(partial).key,'cutting');
+  assert.equal(stageStatus(legacy,'capping'),'not-started');
 });

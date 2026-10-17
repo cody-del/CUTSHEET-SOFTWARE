@@ -1,7 +1,7 @@
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
 import {salesOperations,runSales} from './sales-service.mjs';
-import {progress} from './public/shop-state.js';
+import {progress,production,finishingStages,stageStatus} from './public/shop-state.js';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
 const equal=(a,b)=>timingSafeEqual(Buffer.from(hash(a)),Buffer.from(hash(b)));
@@ -31,7 +31,7 @@ function releaseJob(state,data,a,time){
     return {input:structuredClone(o),result,lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
   });
   const job={id,name:text(input.name,'job name',100),number:text(input.number,'job number'),notes:text(input.notes||'','shop notes',1200,false),
-    ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,activity:[]};
+    ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,cuttingStartedAt:null,production:{},productionCompletedAt:null,activity:[]};
   audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
 }
 
@@ -87,7 +87,9 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,
-            ...(operation==='dashboard'?{devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
+            ...(operation==='dashboard'?{
+              pendingOrders:Object.values(state.orders||{}).filter(order=>!state.jobs[order.id]).map(({id,name,number,openings,createdAt})=>({id,name,number,openingCount:openings.length,createdAt})),
+              devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
         }
         if(operation==='pairing'){
           const name=text(data.name,'iPad name',60),code=randomBytes(8).toString('hex').toUpperCase();
@@ -98,6 +100,22 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(operation==='publish')return releaseJob(state,data,a,time);
         const job=jobFor(state,data);
         if(operation==='plan'){Object.assign(job,plan(data));audit(job,a,'Updated cutting estimate and target date',time);return {job};}
+        if(operation==='stage'){
+          const index=finishingStages.findIndex(stage=>stage.key===data.stage),stage=finishingStages[index];
+          if(!stage||!['not-started','partial','complete'].includes(data.status))fail(400,'Choose a valid production stage and status.');
+          if(!progress(job).complete)fail(409,'Finish every cut line before starting Capping.');
+          if(finishingStages.slice(0,index).some(s=>stageStatus(job,s.key)!=='complete'))fail(409,'Complete the preceding production stages first.');
+          const previous=stageStatus(job,stage.key);
+          if(previous===data.status)return {job};
+          const following=finishingStages.slice(index+1),reset=following.some(s=>stageStatus(job,s.key)!=='not-started');
+          if(data.status!=='complete'&&reset&&data.resetFollowing!==true)fail(409,'Reopening this stage also clears later production checks. Confirm the correction first.');
+          job.production??={};
+          if(data.status!=='complete')for(const s of following)delete job.production[s.key];
+          job.production[stage.key]={status:data.status,updatedAt:time,completedAt:data.status==='complete'?time:null,by:a.name};
+          job.productionCompletedAt=production(job).key==='complete'?time:null;
+          audit(job,a,`${stage.label}: ${data.status==='complete'?'complete':data.status==='partial'?'partial':'not started'}${data.status!=='complete'&&reset?' · later production checks cleared':''} · ${production(job).label}`,time);
+          return {job};
+        }
         if(operation==='timer'){
           if(!['start','pause','finish'].includes(data.action))fail(400,'Invalid timer action.');
           const p=progress(job);
@@ -105,7 +123,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
             if(p.complete)fail(409,'Every line is already fully cut.');
             if(job.startedAt)fail(409,'This job timer is already running.');
             const running=Object.values(state.jobs).find(j=>j.startedAt);if(running)fail(409,`Pause ${running.number} before starting another job.`);
-            job.startedAt=time;audit(job,a,'Started cutting',time);
+            job.cuttingStartedAt??=time;job.startedAt=time;audit(job,a,'Started cutting',time);
           }else{
             if(data.action==='finish'&&!p.complete)fail(409,'Mark every cut-sheet line fully cut before finishing.');
             stop(job,time);if(data.action==='finish')job.completedAt=time;
@@ -125,6 +143,11 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           let completed=data.status==='cut'?line.quantity:data.status==='not-cut'?0:Number(data.completed);
           if(!Number.isInteger(completed)||completed<0||completed>line.quantity||(data.status==='partial'&&completed===line.quantity))fail(400,'Enter a completed quantity below the total for a partial cut.');
           if(data.status==='partial'&&typeof data.outOfMaterial!=='boolean')fail(400,'Please answer whether you are out of material.');
+          const reset=completed<line.quantity&&finishingStages.some(s=>stageStatus(job,s.key)!=='not-started');
+          if(reset&&data.resetFollowing!==true)fail(409,'Correcting this cut clears the later production checks. Confirm the correction first.');
+          if(reset)job.production={};
+          if(data.status!=='not-cut'||line.completed>0||line.status==='partial')job.cuttingStartedAt??=time;
+          if(completed<line.quantity)job.productionCompletedAt=null;
           line.status=data.status;line.completed=completed;
           if(data.status==='partial'&&data.outOfMaterial){
             line.shortage={status:'open',note:text(data.note||'','material note',500,false),createdAt:time,updatedAt:time,by:a.name};
@@ -132,7 +155,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           }else if(line.shortage&&data.status==='cut'){line.shortage.status='resolved';line.shortage.updatedAt=time;}
           job.completedAt=null;
           if(progress(job).complete){stop(job,time);job.completedAt=time;}
-          audit(job,a,`${line.name}${line.section?' · section '+line.section:''}: ${completed}/${line.quantity} cut${data.outOfMaterial?' · out of material (timer paused)':''}`,time);
+          audit(job,a,`${line.name}${line.section?' · section '+line.section:''}: ${completed}/${line.quantity} cut${data.outOfMaterial?' · out of material (timer paused)':''}${reset?' · later production checks cleared':''}${progress(job).complete?' · ready for Capping':''}`,time);
           return {job};
         }
         fail(404,'Unknown shop action.');

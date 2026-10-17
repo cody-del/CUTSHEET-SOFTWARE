@@ -1,4 +1,22 @@
 // Shared presentation helpers. Quantities and elapsed time are authoritative on the server.
+export const productionStages=[
+  {key:'waiting',label:'Waiting'}, {key:'cutting',label:'Cutting'},
+  {key:'capping',label:'Capping'}, {key:'boring',label:'Boring'},
+  {key:'building',label:'Building'}, {key:'hinging',label:'Hinging'},
+  {key:'complete',label:'Complete'}
+];
+export const finishingStages=productionStages.slice(2,-1);
+export const stageStatus=(job,key)=>job.production?.[key]?.status||'not-started';
+export function production(job) {
+  if(!job)return productionStages[0];
+  const p=progress(job);
+  if(!p.complete){
+    const started=job.cuttingStartedAt||job.startedAt||job.elapsedMs||job.completedAt||
+      job.openings.some(o=>o.lines.some(l=>l.status==='partial'||l.completed>0));
+    return productionStages[started?1:0];
+  }
+  return finishingStages.find(stage=>stageStatus(job,stage.key)!=='complete')||productionStages.at(-1);
+}
 export function elapsed(job, now=Date.now()) {
   return (job.elapsedMs||0)+(job.startedAt?Math.max(0,now-job.startedAt):0);
 }

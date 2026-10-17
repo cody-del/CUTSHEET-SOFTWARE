@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {calculate} from './calculations.mjs';
+import {production} from './public/shop-state.js';
 
 export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-save','quote-convert','order-release'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
@@ -39,13 +40,14 @@ const summary=q=>({id:q.id,contactId:q.contactId,number:q.number,name:q.name,sta
 export async function runSales(state,operation,data,time,publish){
   state.contacts??={};state.quotes??={};state.orders??={};state.salesCounters??={quote:0,order:0};state.pricing??={rateCents:null,minimumAreaHundredths:0,version:0};
   const touch=r=>{r.version++;r.updatedAt=time;return r;};
+  const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:production(state.jobs[q.id]).key});
   if(operation==='pricing-save'){current(state.pricing,data.version);const rateCents=amount(data.rateCents,'price per square foot',1000000);if(!rateCents)fail(400,'Enter a price greater than zero.');state.pricing={rateCents,minimumAreaHundredths:amount(data.minimumAreaHundredths,'minimum square footage',100000),version:state.pricing.version+1,updatedAt:time};return {pricing:state.pricing};}
-  if(operation==='sales')return {pricing:state.pricing,contacts:Object.values(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:Object.values(state.quotes).map(summary),orders:Object.values(state.orders).map(q=>({...summary(q),released:!!state.jobs[q.id]}))};
+  if(operation==='sales')return {pricing:state.pricing,contacts:Object.values(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:Object.values(state.quotes).map(summary),orders:Object.values(state.orders).map(orderSummary)};
   if(operation==='sales-get'){
-    if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:Object.values(state.quotes).filter(q=>q.contactId===contact.id).map(summary),orders:Object.values(state.orders).filter(q=>q.contactId===contact.id).map(q=>({...summary(q),released:!!state.jobs[q.id]}))};}
+    if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:Object.values(state.quotes).filter(q=>q.contactId===contact.id).map(summary),orders:Object.values(state.orders).filter(q=>q.contactId===contact.id).map(orderSummary)};}
     if(!['quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const record=get(data.kind==='quote'?state.quotes:state.orders,data.id);
-    return {record,contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:record.openings.map(o=>calculate(o).louverLayout||null),released:!!state.jobs[record.id]};
+    return {record,contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:record.openings.map(o=>calculate(o).louverLayout||null),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:production(state.jobs[record.id]).key}:{})};
   }
   if(operation==='contact-save'){
     const id=identifier(data.id),previous=state.contacts[id];if(previous)current(previous,data.version);else if(data.version!==0)fail(409,'This contact no longer exists.');

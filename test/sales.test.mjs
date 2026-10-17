@@ -11,6 +11,7 @@ import {salesOperations,quoteTotals} from '../sales-service.mjs';
 import {calculate} from '../calculations.mjs';
 import {printedReferences} from './printed-reference-cases.mjs';
 import {parseMeasurement} from '../public/measurements.js';
+import {finishingStages} from '../public/shop-state.js';
 const password='test-owner-password',secret='test-signing-key-with-more-than-32-characters';
 const contact={firstName:'Alex',lastName:'Rivera',address:'123 Example Lane\nNaples, FL',phone:'555-0100',email:'alex@example.com',notes:'PRIVATE: site access instructions'};
 const opening={id:'opening-1',name:'Living room',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,divisionMode:'divider',notes:'Keep panels labeled.'};
@@ -49,3 +50,24 @@ test('unpriced or empty quotes cannot become orders, and unsafe cuts still canno
 test('stale updates, invalid prices and prototype identifiers fail without changing saved data',async t=>{const f=await fixture(t),q=await quote(f);await assert.rejects(f.run('quote-save',{id:q.id,version:1,fields:{name:'Old update'}}),e=>e.status===409);await assert.rejects(f.run('contact-save',{id:'contact-1',version:0,fields:contact}),e=>e.status===409);for(const id of ['__proto__','constructor','prototype'])await assert.rejects(f.run('sales-get',{kind:'quote',id}),e=>e.status===400);for(const fields of [{taxBasisPoints:10001},{discountCents:99999999},{installationCents:-10},{unitPrices:{'opening-1':1.23}},{openings:[opening,opening]},{validUntil:'2026-02-31'}])await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields}));assert.equal((await f.run('sales-get',{kind:'quote',id:q.id})).record.version,q.version);});
 
 test('quote and order PDF routes use server records and cut PDFs use the accepted order',async t=>{const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version}),handler=shopHandler(f.service);const request=(op,data)=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify(data)});for(const [op,data]of [['sales-document',{kind:'quote',id:q.id}],['sales-document',{kind:'order',id:order.id}],['order-pdf',{id:order.id,units:'mm',openings:[{...opening,width:1}]}]]){const response=await handler(request(op,data));assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/application\/pdf/);const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);assert.equal(pdf.getPage(0).getWidth(),612);}assert.equal((await handler(request('order-pdf',{id:order.id,units:'bogus'}))).status,400);});
+
+test('new orders wait on the owner board and track shop production without duplicate cards',async t=>{
+  const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  const dashboard=await f.run('dashboard');
+  assert.equal(dashboard.pendingOrders.length,1);assert.equal(dashboard.pendingOrders[0].id,order.id);
+  assert.equal(dashboard.jobs.length,0);
+  assert.equal((await f.run('sales')).orders[0].productionStage,'waiting');
+  const {code}=await f.run('pairing',{name:'Shop'}),shop={shop:(await f.service.run('pair',{code})).token};
+  assert.equal((await f.service.run('jobs',{},shop)).pendingOrders,undefined);
+  let {job:j}=await f.run('order-release',{id:order.id,version:order.version});
+  assert.equal((await f.run('dashboard')).pendingOrders.length,0);
+  assert.equal((await f.run('dashboard')).jobs.length,1);
+  const detail=()=>f.run('sales-get',{kind:'order',id:order.id});
+  for(const line of j.openings[0].lines)({job:j}=await f.service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'},shop));
+  assert.equal((await detail()).productionStage,'capping');
+  for(const stage of finishingStages)({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'complete'},shop));
+  assert.equal((await detail()).productionStage,'complete');
+  assert.equal((await f.run('sales')).orders[0].productionStage,'complete');
+  assert.equal((await f.run('sales-get',{kind:'contact',id:'contact-1'})).orders[0].productionStage,'complete');
+  assert.deepEqual((await detail()).record.openings,order.openings);
+});
