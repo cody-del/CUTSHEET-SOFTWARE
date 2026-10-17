@@ -108,6 +108,24 @@ test('hosted setup fails closed, rate limiting persists and forged cookies fail'
   assert.equal((await service.run('session',{}, {owner:owner.owner+'x'})).role,null);
 });
 
+test('setup diagnostics identify incomplete settings without exposing credential values',async()=>{
+  const store={transaction:async fn=>fn({jobs:{},devices:{},pairings:{},attempts:{}})};
+  const shortPassword='private123',shortSecret='private-session-value';
+  const incomplete=await createShopService({store,password:shortPassword,secret:shortSecret}).run('session');
+  assert.equal(incomplete.configured,false);
+  assert.deepEqual(incomplete.setupIssues,[
+    'The owner password must contain at least 12 characters.',
+    'The session signing key must contain at least 32 characters.'
+  ]);
+  assert.ok(!JSON.stringify(incomplete).includes(shortPassword));
+  assert.ok(!JSON.stringify(incomplete).includes(shortSecret));
+  const missingStore=await createShopService({store:null,password,secret}).run('session');
+  assert.deepEqual(missingStore.setupIssues,['The database connection is missing.']);
+  const ready=await createShopService({store,password,secret}).run('session');
+  assert.equal(ready.configured,true);
+  assert.equal(ready.setupIssues,undefined);
+});
+
 test('shop HTTP API protects writes, limits bodies, and uses secure HttpOnly cookies',async t=>{
   const {service}=await fixture(t,{local:false}),handler=shopHandler(service);
   const request=(action,data,extra={})=>new Request('https://shop.example/api/shop/'+action,{method:'POST',headers:{'content-type':'application/json',origin:'https://shop.example',...extra},body:JSON.stringify(data)});

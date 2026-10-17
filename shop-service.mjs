@@ -18,7 +18,12 @@ function stop(job,now){if(job.startedAt){job.elapsedMs+=Math.max(0,now-job.start
 function audit(job,actor,message,now){job.activity.unshift({at:now,by:actor.name,message});job.activity=job.activity.slice(0,200);job.version++;job.updatedAt=now;}
 
 export function createShopService({store,local=false,password='',secret='',now=()=>Date.now()}) {
-  const configured=!!store&&(local||(password.length>=12&&secret.length>=32));
+  const setupIssues=[
+    ...(!store?['The database connection is missing.']:[]),
+    ...(!local&&password.length<12?['The owner password must contain at least 12 characters.']:[]),
+    ...(!local&&secret.length<32?['The session signing key must contain at least 32 characters.']:[])
+  ];
+  const configured=setupIssues.length===0;
   const sign=value=>createHmac('sha256',secret+hash(password)).update(value).digest('base64url');
   function ownerToken(){const body=Buffer.from(JSON.stringify({expires:now()+12*3600000})).toString('base64url');return body+'.'+sign(body);}
   function validOwner(token){try{const [body,sig]=token.split('.');return equal(sig,sign(body))&&JSON.parse(Buffer.from(body,'base64url')).expires>now();}catch{return false;}}
@@ -32,7 +37,7 @@ export function createShopService({store,local=false,password='',secret='',now=(
   return {
     configured,
     async run(operation,data={},cookie={}) {
-      if(!configured){if(operation==='session')return {configured:false,role:null,local};fail(503,'Shared shop storage is not connected yet.');}
+      if(!configured){if(operation==='session')return {configured:false,role:null,local,setupIssues};fail(503,'Shared shop storage is not connected yet.');}
       return store.transaction(async state=>{
         const time=now();
         // Prune expired connection codes and old rate-limit buckets.
