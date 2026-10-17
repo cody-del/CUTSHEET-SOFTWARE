@@ -114,7 +114,7 @@ The loopback-only local server persists workshop jobs, device connections, and a
 
 The new Netlify function uses a PostgreSQL transaction with a row lock for all workshop changes. See [node-postgres transactions](https://node-postgres.com/features/transactions). No hosted data is written to a function's temporary filesystem. Storage is designed for a small single workshop, with up to 500 released jobs and the latest 200 activity entries per job; it is not a payroll system or unlimited audit archive.
 
-The production site is [cutsheetprogram.netlify.app](https://cutsheetprogram.netlify.app/), connected to `main` in `cody-del/CUTSHEET-SOFTWARE`. Set these environment variables in Netlify's **Functions** scope and **Production** context, then redeploy. Mark password and session-secret values as secrets:
+The production site is [cutsheetsoftware.netlify.app](https://cutsheetsoftware.netlify.app/), connected to `main` in `cody-del/CUTSHEET-SOFTWARE`. Set these environment variables in Netlify's **Functions** scope and **Production** context, then redeploy. Mark password and session-secret values as secrets:
 
 - `CUTSHEET_DATABASE_URL`: the private PostgreSQL connection URL. Alternatively, a configured [Netlify Database](https://docs.netlify.com/build/data-and-storage/netlify-database/) supplies `NETLIFY_DB_URL`.
 - `CUTSHEET_DATABASE_PASSWORD`: optional raw database password, stored separately from the URL. Punctuation is encoded by the server; do not URL-encode this value yourself.
