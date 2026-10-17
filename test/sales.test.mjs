@@ -108,7 +108,7 @@ test('legacy address editing preserves unrecognized text and old clients cannot 
 
 test('products keep independent pricing and simple quote inputs never use shutter calculations',async t=>{
   const f=await fixture(t);await quote(f);
-  for(const productId of ['elegant-shutters','rockwell']){
+  for(const productId of ['elegant-shutters','starwood']){
     let {quote:q}=await f.run('quote-create',{id:'quote-'+productId,contactId:'contact-1',productId});
     assert.equal(q.pricing.rateCents,null);
     const item={id:'simple',name:'Great room',width:51.875,height:36.58,quantity:2,notes:'White finish, customer selected style.'};
@@ -134,7 +134,7 @@ test('products keep independent pricing and simple quote inputs never use shutte
 
 test('only ShutterSmart can release jobs or generate manufacturing PDFs, including forged and stale requests',async t=>{
   const f=await fixture(t);await quote(f);
-  for(const productId of ['elegant-shutters','rockwell','other']){
+  for(const productId of ['elegant-shutters','starwood','other']){
     let {quote:q}=await f.run('quote-create',{id:'quote-'+productId,contactId:'contact-1',productId,productLabel:'Example brand'});
     ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[opening],unitPrices:{[opening.id]:50000}}}));
     const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
@@ -147,7 +147,7 @@ test('only ShutterSmart can release jobs or generate manufacturing PDFs, includi
     const response=await handler(request('sales-document',{kind:'quote',id:q.id}));assert.equal(response.status,200);
     const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);assert.match(pdf.getTitle(),/Proposal/);
   }
-  for(const productId of ['elegant-shutters','rockwell','other','future-product',null,'']){
+  for(const productId of ['elegant-shutters','starwood','other','future-product',null,'']){
     assert.throws(()=>calculate({...opening,productId}),/only for ShutterSmart/);
     await assert.rejects(f.run('publish',{job:{id:'explicit-product',name:'Test',number:'TEST',productId,openings:[opening]}}),/only for ShutterSmart/);
     const {createPDF}=await import('../pdf.mjs');await assert.rejects(createPDF({productId,openings:[opening]}),/only for ShutterSmart/);
@@ -159,7 +159,7 @@ test('product identity is fixed and invalid simple measurements cannot be saved'
   const f=await fixture(t),q=await quote(f);
   for(const productId of ['future-product','constructor',null,''])await assert.rejects(f.run('quote-create',{id:'invalid-product',contactId:'contact-1',productId}),/supported product/);
   await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{productId:'elegant-shutters'}}),/new quote/);
-  await assert.rejects(f.run('quote-create',{id:q.id,contactId:'contact-1',productId:'rockwell'}),/different product/);
+  await assert.rejects(f.run('quote-create',{id:q.id,contactId:'contact-1',productId:'starwood'}),/different product/);
   const {quote:simple}=await f.run('quote-create',{id:'simple',contactId:'contact-1',productId:'elegant-shutters'});
   for(const change of [{width:0},{width:'51.875'},{height:-1},{height:Infinity},{quantity:1.2},{productId:'shuttersmart'}])await assert.rejects(f.run('quote-save',{id:simple.id,version:1,fields:{openings:[{...opening,...change}]}}));
   assert.equal((await f.run('sales-get',{kind:'quote',id:simple.id})).record.version,1);
@@ -183,10 +183,10 @@ test('empty quote product selection switches pricing and layout identity while p
   assert.equal(elegant.pricing.rateCents,4000);assert.equal(elegant.pricing.minimumAreaHundredths,1200);
   assert.equal(elegant.contactId,original.contactId);assert.equal(elegant.number,original.number);assert.equal(elegant.notes,original.notes);
   assert.equal(elegant.version,original.version+1);assert.deepEqual(elegant.openings,[]);
-  await assert.rejects(f.run('quote-product',{id:original.id,version:original.version,productId:'rockwell'}),e=>e.status===409);
-  const {quote:rockwell}=await f.run('quote-product',{id:elegant.id,version:elegant.version,productId:'rockwell'});
-  assert.equal(rockwell.name,'Rockwell');assert.equal(rockwell.pricing.rateCents,null);
-  const {quote:custom}=await f.run('quote-product',{id:rockwell.id,version:rockwell.version,productId:'other',productLabel:'Example shades'});
+  await assert.rejects(f.run('quote-product',{id:original.id,version:original.version,productId:'starwood'}),e=>e.status===409);
+  const {quote:starwood}=await f.run('quote-product',{id:elegant.id,version:elegant.version,productId:'starwood'});
+  assert.equal(starwood.name,'Starwood');assert.equal(starwood.pricing.rateCents,null);
+  const {quote:custom}=await f.run('quote-product',{id:starwood.id,version:starwood.version,productId:'other',productLabel:'Example shades'});
   assert.equal(custom.productLabel,'Example shades');assert.equal(custom.name,'Example shades');
   const {quote:back}=await f.run('quote-product',{id:custom.id,version:custom.version,productId:'shuttersmart'});
   assert.equal(back.name,'ShutterSmart');assert.equal(back.productLabel,undefined);assert.equal(back.pricing.rateCents,2500);
@@ -198,10 +198,10 @@ test('product changes cannot overwrite line items, sold orders, or concurrent ch
   await assert.rejects(f.run('quote-product',{id:q.id,version:q.version,productId:'elegant-shutters'}),/separate quote/);
   assert.deepEqual((await f.run('sales-get',{kind:'quote',id:q.id})).record.openings,q.openings);
   const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
-  await assert.rejects(f.run('quote-product',{id:q.id,version:q.version+1,productId:'rockwell'}),/cannot be changed/);
+  await assert.rejects(f.run('quote-product',{id:q.id,version:q.version+1,productId:'starwood'}),/cannot be changed/);
   assert.deepEqual((await f.run('sales-get',{kind:'order',id:order.id})).record.openings,q.openings);
   const {quote:empty}=await f.run('quote-create',{id:'empty-custom',contactId:'contact-1',name:'Customer-selected name'});
   for(const data of [{productId:'unknown'},{productId:'other',productLabel:''}])await assert.rejects(f.run('quote-product',{id:empty.id,version:empty.version,...data}),e=>e.status===400);
-  const {quote:changed}=await f.run('quote-product',{id:empty.id,version:empty.version,productId:'rockwell'});
+  const {quote:changed}=await f.run('quote-product',{id:empty.id,version:empty.version,productId:'starwood'});
   assert.equal(changed.name,'Customer-selected name');
 });

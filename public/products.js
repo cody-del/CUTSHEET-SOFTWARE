@@ -3,7 +3,7 @@
 export const PRODUCTS=Object.freeze([
   Object.freeze({id:'shuttersmart',name:'ShutterSmart',cutSheets:true}),
   Object.freeze({id:'elegant-shutters',name:'Elegant Shutters',cutSheets:false}),
-  Object.freeze({id:'rockwell',name:'Rockwell',cutSheets:false}),
+  Object.freeze({id:'starwood',name:'Starwood',cutSheets:false}),
   Object.freeze({id:'other',name:'Other brand',cutSheets:false})
 ]);
 export const productId=record=>record?.productId===undefined?'shuttersmart':record.productId;
