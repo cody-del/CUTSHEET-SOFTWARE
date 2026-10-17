@@ -12,7 +12,7 @@ Jobs save to localStorage in the active browser. Export a backup before clearing
 
 ## Deploy to Netlify
 
-Import the `cody-del/CUTSHEET` GitHub repository into Netlify. The root `netlify.toml` sets Node 22, runs the test suite before every deployment, publishes `public/`, and bundles the calculation/PDF handler from `netlify/functions/api.mjs`. The calculator and PDF generator need no environment variables or external database. The optional shared workshop needs the setup below. The workbook is a JSON module bundled into the function; it is not published as a static asset.
+Import the `cody-del/CUTSHEET-SOFTWARE` GitHub repository into Netlify. The root `netlify.toml` sets Node 22, runs the test suite before every deployment, publishes `public/`, and bundles the calculation/PDF handler from `netlify/functions/api.mjs`. The calculator and PDF generator need no environment variables or external database. The optional shared workshop needs the setup below. The workbook is a JSON module bundled into the function; it is not published as a static asset.
 
 The browser calls `/api/info`, `/api/calculate`, and `/api/pdf` on the same site. On Netlify, opening measurements and job details needed to generate PDFs are processed by Netlify Functions. The calculation and PDF endpoints do not store or log those requests. Explicitly sending a job to the shop stores its released cut sheets in the shared workshop. Saved jobs and the uploaded logo remain in localStorage in the current browser; they are not shared between users or devices.
 
@@ -114,13 +114,15 @@ The loopback-only local server persists workshop jobs, device connections, and a
 
 The new Netlify function uses a PostgreSQL transaction with a row lock for all workshop changes. See [node-postgres transactions](https://node-postgres.com/features/transactions). No hosted data is written to a function's temporary filesystem. Storage is designed for a small single workshop, with up to 500 released jobs and the latest 200 activity entries per job; it is not a payroll system or unlimited audit archive.
 
-Set these environment variables in Netlify's Functions scope, then redeploy:
+The production site is [cutsheetprogram.netlify.app](https://cutsheetprogram.netlify.app/), connected to `main` in `cody-del/CUTSHEET-SOFTWARE`. Set these environment variables in Netlify's **Functions** scope and **Production** context, then redeploy. Mark password and session-secret values as secrets:
 
 - `CUTSHEET_DATABASE_URL`: the private PostgreSQL connection URL. Alternatively, a configured [Netlify Database](https://docs.netlify.com/build/data-and-storage/netlify-database/) supplies `NETLIFY_DB_URL`.
+- `CUTSHEET_DATABASE_PASSWORD`: optional raw database password, stored separately from the URL. Punctuation is encoded by the server; do not URL-encode this value yourself.
+- `CUTSHEET_DATABASE_CA`: optional PEM database root certificate override. Supabase pooler connections automatically use the public Supabase CA bundled in `source/supabase-ca.json`, downloaded from **Database → Settings → SSL configuration**. The server verifies both the certificate chain and hostname, overriding URL SSL flags. If Supabase rotates this CA, update the bundled public certificate or set this override.
 - `CUTSHEET_OWNER_PASSWORD`: a unique owner password of at least 12 characters.
 - `CUTSHEET_SESSION_SECRET`: a cryptographically random secret of at least 32 characters.
 
-Never commit these values or put them in the browser bundle. The function creates its `cutsheet_workshop` table on first use. Use a database credential restricted to the application database and take database backups. The hosted workshop remains unavailable until all configuration is present; existing calculator/PDF features continue working.
+Never commit these values or put them in the browser bundle. The function creates its `cutsheet_workshop` table on first use. For Supabase, pre-create the table with RLS enabled and revoke access from `public`, `anon`, `authenticated`, and `service_role`; the browser must never use the Data API to read workshop data. Use the transaction pooler on port 6543 for Netlify Functions. Use a database credential restricted to the application database and take database backups. The hosted workshop remains unavailable until all configuration is present; existing calculator/PDF features continue working.
 
 The owner signs in to `/owner.html` (12-hour session), then generates a one-time, 10-minute connection code for `/shop.html` on the iPad. There are no employee accounts. A paired device uses a Secure, HttpOnly, SameSite cookie for up to 180 days, and the owner can revoke it at any time. The server records the device name, not an employee identity. Password and session-secret changes invalidate owner sessions; device connections must be revoked separately. A paired iPad cannot release jobs, modify schedules, resolve owner material alerts, pair other devices, or read the owner dashboard API. Keep owner access in a separate browser from the paired shop session.
 
