@@ -1,3 +1,4 @@
+import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {FRAME_STYLES,frameStyle,frameNotice} from './public/frames.js';
 import workbook from './source/workbook.json' with {type:'json'};
 import {WorkbookEngine} from './engine.mjs';
@@ -20,6 +21,7 @@ export const panelCount=o=>hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.left
 export const configuration=o=>hasTposts(o)?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
 export function validateOpening(o){
   if(!o||typeof o!=='object')throw new ValidationError('An opening is required.');
+  if(!supportsCutSheets(o))throw new ValidationError(CUT_SHEETS_ONLY);
   numeric(o.width,'Width (inches)',1,hasTposts(o)?Number.MAX_SAFE_INTEGER:106);numeric(o.height,'Height (inches)',1,114);
   numeric(o.quantity,'Quantity',1,100,true);
   if(hasTposts(o)){

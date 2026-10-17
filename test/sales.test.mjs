@@ -105,3 +105,72 @@ test('legacy address editing preserves unrecognized text and old clients cannot 
   const {contact:empty}=await f.run('contact-save',{id:'empty-address',version:0,fields:{...contact,streetAddress:'',city:'',zipCode:''}});
   assert.equal(empty.address,'');assert.equal(empty.state,'FL');
 });
+
+test('products keep independent pricing and simple quote inputs never use shutter calculations',async t=>{
+  const f=await fixture(t);await quote(f);
+  for(const productId of ['elegant-shutters','rockwell']){
+    let {quote:q}=await f.run('quote-create',{id:'quote-'+productId,contactId:'contact-1',productId});
+    assert.equal(q.pricing.rateCents,null);
+    const item={id:'simple',name:'Great room',width:51.875,height:36.58,quantity:2,notes:'White finish, customer selected style.'};
+    ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{...item,frame:'TR',left:1,right:1}]}}));
+    assert.deepEqual(q.openings,[item]);assert.equal(quoteTotals(q).unpriced,1);
+    await f.run('pricing-save',{productId,version:0,rateCents:4000,minimumAreaHundredths:0});
+    ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{useCurrentPricing:true}}));
+    assert.equal(quoteTotals(q).lines[0].unitPrice,52711);
+    const detail=await f.run('sales-get',{kind:'quote',id:q.id});assert.deepEqual(detail.previews,[]);
+    const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+    assert.equal(order.productId,productId);assert.deepEqual(order.openings,[item]);
+    assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).productionStage,null);
+  }
+  const sales=await f.run('sales');assert.equal(sales.pricing.rateCents,2500);assert.equal(sales.productPricing['elegant-shutters'].rateCents,4000);
+  assert.equal((await f.run('dashboard')).pendingOrders.length,0);
+  const other=await f.run('quote-create',{id:'custom-brand',contactId:'contact-1',productId:'other',productLabel:'Example Blinds'});
+  assert.equal(other.quote.productLabel,'Example Blinds');assert.equal(other.quote.pricing.rateCents,null);
+  const {quote:custom}=await f.run('quote-save',{id:other.quote.id,version:1,fields:{openings:[{id:'custom',name:'Office',width:36.58,height:625,quantity:1,notes:'Roller shade'}],unitPrices:{custom:12345}}});
+  assert.equal(quoteTotals(custom).total,12345);
+  assert.equal((await f.run('quote-convert',{id:custom.id,version:custom.version})).order.productLabel,'Example Blinds');
+  await assert.rejects(f.run('pricing-save',{productId:'other',version:0,rateCents:99,minimumAreaHundredths:0}),/unit price on each line/);
+});
+
+test('only ShutterSmart can release jobs or generate manufacturing PDFs, including forged and stale requests',async t=>{
+  const f=await fixture(t);await quote(f);
+  for(const productId of ['elegant-shutters','rockwell','other']){
+    let {quote:q}=await f.run('quote-create',{id:'quote-'+productId,contactId:'contact-1',productId,productLabel:'Example brand'});
+    ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[opening],unitPrices:{[opening.id]:50000}}}));
+    const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+    const handler=shopHandler(f.service),request=(op,data)=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify(data)});
+    for(const op of ['order-release','order-pdf']){
+      const response=await handler(request(op,{id:order.id,version:order.version,productId:'shuttersmart',openings:[opening]}));
+      assert.equal(response.status,422);assert.match((await response.json()).error,/only for ShutterSmart/);
+    }
+    for(const id of [q.id,order.id])for(const tag of [{},{productId:'shuttersmart'}])await assert.rejects(f.run('publish',{job:{id,name:'Spoofed',number:'TEST',...tag,openings:[opening]}}),/only for ShutterSmart/);
+    const response=await handler(request('sales-document',{kind:'quote',id:q.id}));assert.equal(response.status,200);
+    const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);assert.match(pdf.getTitle(),/Proposal/);
+  }
+  for(const productId of ['elegant-shutters','rockwell','other','future-product',null,'']){
+    assert.throws(()=>calculate({...opening,productId}),/only for ShutterSmart/);
+    await assert.rejects(f.run('publish',{job:{id:'explicit-product',name:'Test',number:'TEST',productId,openings:[opening]}}),/only for ShutterSmart/);
+    const {createPDF}=await import('../pdf.mjs');await assert.rejects(createPDF({productId,openings:[opening]}),/only for ShutterSmart/);
+  }
+  assert.equal((await f.run('dashboard')).jobs.length,0);assert.equal((await f.run('dashboard')).pendingOrders.length,0);
+});
+
+test('product identity is fixed and invalid simple measurements cannot be saved',async t=>{
+  const f=await fixture(t),q=await quote(f);
+  for(const productId of ['future-product','constructor',null,''])await assert.rejects(f.run('quote-create',{id:'invalid-product',contactId:'contact-1',productId}),/supported product/);
+  await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{productId:'elegant-shutters'}}),/new quote/);
+  await assert.rejects(f.run('quote-create',{id:q.id,contactId:'contact-1',productId:'rockwell'}),/different product/);
+  const {quote:simple}=await f.run('quote-create',{id:'simple',contactId:'contact-1',productId:'elegant-shutters'});
+  for(const change of [{width:0},{width:'51.875'},{height:-1},{height:Infinity},{quantity:1.2},{productId:'shuttersmart'}])await assert.rejects(f.run('quote-save',{id:simple.id,version:1,fields:{openings:[{...opening,...change}]}}));
+  assert.equal((await f.run('sales-get',{kind:'quote',id:simple.id})).record.version,1);
+});
+
+test('untagged saved quotes and orders remain ShutterSmart with unchanged cut outputs',async t=>{
+  const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  const {writeFile}=await import('node:fs/promises'),state=JSON.parse(await readFile(f.path));
+  delete state.quotes[q.id].productId;delete state.orders[order.id].productId;await writeFile(f.path,JSON.stringify(state));
+  const second=createShopService({store:fileStore(f.path),password,secret}),run=(op,data)=>second.run(op,data,f.owner);
+  assert.equal((await run('sales-get',{kind:'quote',id:q.id})).record.productId,'shuttersmart');
+  assert.equal((await run('sales')).orders[0].productId,'shuttersmart');
+  const {job}=await run('order-release',{id:order.id,version:order.version});assert.equal(job.productId,'shuttersmart');assert.deepEqual(job.openings[0].result,calculate(opening));
+});

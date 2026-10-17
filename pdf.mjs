@@ -1,3 +1,4 @@
+import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {drawing} from './public/layouts.js';
 import {cutSheetFacts,cutSheetNotes,louverSummary,machiningLabel} from './public/cut-sheet.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
@@ -6,6 +7,7 @@ const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
 const ascii=s=>String(s??'').normalize('NFKD').replace(/×/g,'x').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/·/g,'  ').replace(/[–—]/g,'-').replace(/[^\x20-\x7e\n]/g,'');
 export async function createPDF(job,{combined=false,units='mm'}={}){
   if(!job||!Array.isArray(job.openings)||job.openings.length<1||job.openings.length>100)throw new ValidationError('Add between 1 and 100 openings.');
+  if(!supportsCutSheets(job))throw new ValidationError(CUT_SHEETS_ONLY);
   const results=job.openings.map(o=>({o,result:calculate(o)}));
   for(const {o,result}of results)if(result.warnings.length)throw new ValidationError(`${o.name}: ${result.warnings.join('; ')}`);
   const pdf=await PDFDocument.create(),regular=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);

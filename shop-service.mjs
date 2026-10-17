@@ -1,3 +1,4 @@
+import {productId,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
 import {salesOperations,runSales} from './sales-service.mjs';
@@ -21,6 +22,7 @@ function audit(job,actor,message,now){job.activity.unshift({at:now,by:actor.name
 function releaseJob(state,data,a,time){
   const input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
+  if(!supportsCutSheets(input)||(state.orders?.[id]&&!supportsCutSheets(state.orders[id]))||(state.quotes?.[id]&&!supportsCutSheets(state.quotes[id])))fail(422,CUT_SHEETS_ONLY);
   if(previous)fail(409,'This job is already in the shop. Its released cut sheet is kept unchanged.');
   if(Object.keys(state.jobs).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
   const seen=new Set(),openings=input.openings.map(o=>{
@@ -30,7 +32,7 @@ function releaseJob(state,data,a,time){
     if(!result.parts.length)fail(422,`${o.name} has no calculated cut lines.`);
     return {input:structuredClone(o),result,lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
   });
-  const job={id,name:text(input.name,'job name',100),number:text(input.number,'job number'),notes:text(input.notes||'','shop notes',1200,false),
+  const job={id,productId:productId(input),name:text(input.name,'job name',100),number:text(input.number,'job number'),notes:text(input.notes||'','shop notes',1200,false),
     ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,cuttingStartedAt:null,production:{},productionCompletedAt:null,activity:[]};
   audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
 }
@@ -88,7 +90,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,
             ...(operation==='dashboard'?{
-              pendingOrders:Object.values(state.orders||{}).filter(order=>!state.jobs[order.id]).map(({id,name,number,openings,createdAt})=>({id,name,number,openingCount:openings.length,createdAt})),
+              pendingOrders:Object.values(state.orders||{}).filter(order=>supportsCutSheets(order)&&!state.jobs[order.id]).map(({id,name,number,openings,createdAt})=>({id,name,number,openingCount:openings.length,createdAt})),
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
         }
         if(operation==='pairing'){
