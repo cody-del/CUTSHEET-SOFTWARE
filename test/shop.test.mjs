@@ -12,10 +12,10 @@ import {calculate} from '../calculations.mjs';
 const opening={id:'opening-1',name:'Front window',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
 const job={id:'job-1',name:'Workshop test',number:'TEST-001',notes:'Test only',due:'',openings:[opening]};
 const password='test-password-long-enough',secret='test-session-secret-with-more-than-32-characters';
-async function fixture(t,{local=true}={}){
+async function fixture(t,{local=true,publicOwnerAccess=false}={}){
   const directory=await mkdtemp(join(tmpdir(),'cutsheet-shop-'));t.after(()=>rm(directory,{recursive:true,force:true}));
   let time=Date.UTC(2026,9,16,16);const path=join(directory,'workshop.json');
-  const service=createShopService({store:fileStore(path),local,password,secret,now:()=>time});
+  const service=createShopService({store:fileStore(path),local,publicOwnerAccess,password,secret,now:()=>time});
   return {service,path,advance:ms=>time+=ms,time:()=>time};
 }
 const ownerCookie=async service=>({owner:(await service.run('login',{password})).token});
@@ -106,6 +106,47 @@ test('hosted setup fails closed, rate limiting persists and forged cookies fail'
   assert.equal((await service.run('login',{password})).status,429);
   f.advance(16*60000);const owner=await ownerCookie(service);assert.equal((await service.run('session',{},owner)).role,'owner');
   assert.equal((await service.run('session',{}, {owner:owner.owner+'x'})).role,null);
+});
+
+test('temporary public owner access supports shared work and restores normal access when disabled',async t=>{
+  const f=await fixture(t,{local:false}),protectedService=f.service;
+  const owner=await ownerCookie(protectedService),shop=await paired(protectedService,owner);
+  const publicService=createShopService({store:fileStore(f.path),password,secret,publicOwnerAccess:true,now:f.time});
+  for(const cookie of [{},shop]){
+    const session=await publicService.run('session',{},cookie);
+    assert.equal(session.role,'owner');assert.equal(session.publicOwnerAccess,true);
+    assert.equal(session.cookie,undefined);assert.equal(session.token,undefined);
+  }
+  const {job:released}=await publicService.run('publish',{job});
+  assert.equal(released.activity[0].by,'Public owner access');
+  await publicService.run('pricing-save',{version:0,rateCents:2500,minimumAreaHundredths:0});
+  assert.equal((await publicService.run('sales')).pricing.rateCents,2500);
+  assert.equal((await publicService.run('dashboard',{},shop)).jobs.length,1);
+  for(const operation of ['pair','pairing','revoke'])await assert.rejects(publicService.run(operation,{}),e=>e.status===403);
+  assert.equal((await publicService.run('login',{password:'wrong'})).status,401);
+  // A new protected instance sees the saved work, without granting lasting public access.
+  assert.equal((await protectedService.run('session')).role,null);
+  for(const operation of ['dashboard','sales','jobs'])await assert.rejects(protectedService.run(operation),e=>e.status===401);
+  assert.equal((await protectedService.run('session',{},shop)).role,'shop');
+  await assert.rejects(protectedService.run('sales',{},shop),e=>e.status===403);
+  assert.equal((await protectedService.run('jobs',{},shop)).jobs.length,1);
+  assert.equal((await protectedService.run('sales',{},owner)).pricing.rateCents,2500);
+  assert.equal((await protectedService.run('session',{},await ownerCookie(protectedService))).role,'owner');
+});
+
+test('public access requires an explicit server boolean and preserves HTTP write protections',async t=>{
+  const f=await fixture(t,{local:false,publicOwnerAccess:true}),handler=shopHandler(f.service);
+  const response=await handler(new Request('https://shop.example/api/shop/session'));
+  assert.equal(response.headers.get('set-cookie'),null);
+  assert.equal((await response.json()).publicOwnerAccess,true);
+  const request=origin=>new Request('https://shop.example/api/shop/publish',{method:'POST',headers:{'content-type':'application/json',origin},body:JSON.stringify({job})});
+  assert.equal((await handler(request('https://evil.example'))).status,403);
+  assert.equal((await handler(request('https://shop.example'))).status,200);
+  for(const value of [undefined,false,'false','true',1]){
+    const service=createShopService({store:fileStore(f.path),password,secret,publicOwnerAccess:value});
+    assert.equal((await service.run('session',{publicOwnerAccess:true})).role,null);
+  }
+  assert.equal((await createShopService({store:null,password,secret,publicOwnerAccess:true}).run('session')).configured,false);
 });
 
 test('setup diagnostics identify incomplete settings without exposing credential values',async()=>{

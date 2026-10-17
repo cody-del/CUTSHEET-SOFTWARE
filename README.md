@@ -135,6 +135,9 @@ The production site is [cutsheetsoftware.netlify.app](https://cutsheetsoftware.n
 - `CUTSHEET_DATABASE_CA`: optional PEM database root certificate override. Supabase pooler connections automatically use the public Supabase CA bundled in `source/supabase-ca.json`, downloaded from **Database → Settings → SSL configuration**. The server verifies both the certificate chain and hostname, overriding URL SSL flags. If Supabase rotates this CA, update the bundled public certificate or set this override.
 - `CUTSHEET_OWNER_PASSWORD`: a unique owner password of at least 12 characters.
 - `CUTSHEET_SESSION_SECRET`: a cryptographically random secret of at least 32 characters.
+- `CUTSHEET_PUBLIC_OWNER_ACCESS`: optional temporary public-access switch. Only the exact value `true` enables it; unset or `false` keeps password protection.
+
+Temporary public access lets anyone with the site link view and edit contacts, quotes, orders, pricing, and shop jobs without a password or iPad code. Keep the existing password and session secret configured. No owner session is issued for public access, and device pairing/revocation is disabled in this mode. To restore protection, set `CUTSHEET_PUBLIC_OWNER_ACCESS=false` (or remove it) and redeploy. Existing authenticated owner sessions and paired devices retain their normal permissions; public visitors gain no lasting connection.
 
 Never commit these values or put them in the browser bundle. The function creates its `cutsheet_workshop` table on first use. For Supabase, pre-create the table with RLS enabled and revoke access from `public`, `anon`, `authenticated`, and `service_role`; the browser must never use the Data API to read workshop data. Use the transaction pooler on port 6543 for Netlify Functions. Use a database credential restricted to the application database and take database backups. The hosted workshop remains unavailable until all configuration is present; existing calculator/PDF features continue working.
 

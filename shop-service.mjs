@@ -35,7 +35,9 @@ function releaseJob(state,data,a,time){
   audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
 }
 
-export function createShopService({store,local=false,password='',secret='',now=()=>Date.now()}) {
+export function createShopService({store,local=false,publicOwnerAccess=false,password='',secret='',now=()=>Date.now()}) {
+  // Explicit server configuration only; requests and cookies cannot enable this.
+  const publicAccess=publicOwnerAccess===true;
   const setupIssues=[
     ...(!store?['The database connection is missing.']:[]),
     ...(!local&&password.length<12?['The owner password must contain at least 12 characters.']:[]),
@@ -46,6 +48,7 @@ export function createShopService({store,local=false,password='',secret='',now=(
   function ownerToken(){const body=Buffer.from(JSON.stringify({expires:now()+12*3600000})).toString('base64url');return body+'.'+sign(body);}
   function validOwner(token){try{const [body,sig]=token.split('.');return equal(sig,sign(body))&&JSON.parse(Buffer.from(body,'base64url')).expires>now();}catch{return false;}}
   function actor(state,cookie={}){
+    if(publicAccess)return {role:'owner',id:'public-owner',name:'Public owner access'};
     if(cookie.shop){const d=state.devices[hash(cookie.shop)];if(d&&!d.revoked&&d.expires>now())return {role:'shop',id:d.id,name:d.name};}
     if(local||validOwner(cookie.owner||''))return {role:'owner',id:'owner',name:local?'Owner · local preview':'Owner'};
     return null;
@@ -61,7 +64,9 @@ export function createShopService({store,local=false,password='',secret='',now=(
         // Prune expired connection codes and old rate-limit buckets.
         for(const [key,value]of Object.entries(state.pairings))if(value.expires<time)delete state.pairings[key];
         for(const [key,value]of Object.entries(state.attempts))if(value.until<time)delete state.attempts[key];
-        if(operation==='session')return {configured:true,local,...(actor(state,cookie)||{role:null})};
+        if(operation==='session')return {configured:true,local,publicOwnerAccess:publicAccess,...(actor(state,cookie)||{role:null})};
+        // Temporary public visitors must not create connections that outlive this mode.
+        if(publicAccess&&['pair','pairing','revoke'].includes(operation))fail(403,'Device setup is unavailable during public access. Open the shop page directly; no connection code is needed.');
         if(operation==='login'||operation==='pair'){
           const key=operation+':'+hash(data.client||'unknown');const attempt=state.attempts[key]||{count:0,until:time+15*60000};
           // Return errors here (rather than throw) so failed attempts are committed.
