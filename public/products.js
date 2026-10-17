@@ -11,3 +11,10 @@ export const productFor=record=>PRODUCTS.find(product=>product.id===productId(re
 export const productName=record=>productId(record)==='other'?(record.productLabel||'Other brand'):(productFor(record)?.name||'Unknown product');
 export const supportsCutSheets=record=>productId(record)==='shuttersmart';
 export const CUT_SHEETS_ONLY='Cut sheets and shop production are available only for ShutterSmart.';
+
+// Untagged lines inherit the original product on legacy single-product quotes.
+export const lineProduct=(opening,record)=>opening?.productId===undefined?{productId:productId(record),...(record?.productLabel?{productLabel:record.productLabel}:{})}:{productId:opening.productId,...(opening.productLabel?{productLabel:opening.productLabel}:{})};
+export const isManufacturingLine=(opening,record)=>supportsCutSheets(lineProduct(opening,record));
+export const manufacturingOpenings=record=>(record.openings||[]).filter(opening=>isManufacturingLine(opening,record));
+export const hasManufacturingLines=record=>manufacturingOpenings(record).length>0;
+export const quoteProductNames=record=>[...new Set((record.openings||[]).map(opening=>productName(lineProduct(opening,record))))].join(' + ')||'Choose products by line';

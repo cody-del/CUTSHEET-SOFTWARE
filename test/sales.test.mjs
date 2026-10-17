@@ -7,7 +7,7 @@ import {PDFDocument} from 'pdf-lib';
 import {fileStore} from '../shop-store.mjs';
 import {createShopService} from '../shop-service.mjs';
 import {shopHandler} from '../shop-api.mjs';
-import {salesOperations,quoteTotals} from '../sales-service.mjs';
+import {salesOperations,quoteTotals,orderJob} from '../sales-service.mjs';
 import {calculate} from '../calculations.mjs';
 import {printedReferences} from './printed-reference-cases.mjs';
 import {parseMeasurement} from '../public/measurements.js';
@@ -161,7 +161,7 @@ test('product identity is fixed and invalid simple measurements cannot be saved'
   await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{productId:'elegant-shutters'}}),/new quote/);
   await assert.rejects(f.run('quote-create',{id:q.id,contactId:'contact-1',productId:'starwood'}),/different product/);
   const {quote:simple}=await f.run('quote-create',{id:'simple',contactId:'contact-1',productId:'elegant-shutters'});
-  for(const change of [{width:0},{width:'51.875'},{height:-1},{height:Infinity},{quantity:1.2},{productId:'shuttersmart'}])await assert.rejects(f.run('quote-save',{id:simple.id,version:1,fields:{openings:[{...opening,...change}]}}));
+  for(const change of [{width:0},{width:'51.875'},{height:-1},{height:Infinity},{quantity:1.2},{productId:'unknown'}])await assert.rejects(f.run('quote-save',{id:simple.id,version:1,fields:{openings:[{...opening,...change}]}}));
   assert.equal((await f.run('sales-get',{kind:'quote',id:simple.id})).record.version,1);
 });
 
@@ -204,4 +204,83 @@ test('product changes cannot overwrite line items, sold orders, or concurrent ch
   for(const data of [{productId:'unknown'},{productId:'other',productLabel:''}])await assert.rejects(f.run('quote-product',{id:empty.id,version:empty.version,...data}),e=>e.status===400);
   const {quote:changed}=await f.run('quote-product',{id:empty.id,version:empty.version,productId:'starwood'});
   assert.equal(changed.name,'Customer-selected name');
+});
+
+
+test('mixed quote lines keep product-specific prices, decimals, minimums and immutable identities',async t=>{
+  const f=await fixture(t);let q=await quote(f,{items:[]});
+  await f.run('pricing-save',{productId:'elegant-shutters',version:0,rateCents:4000,minimumAreaHundredths:1400});
+  await f.run('pricing-save',{productId:'starwood',version:0,rateCents:3000,minimumAreaHundredths:0});
+  const items=[{...opening,productId:'shuttersmart',pricing:{rateCents:1}},
+    {id:'elegant',productId:'elegant-shutters',name:'Bedroom shades',width:51.875,height:36.58,quantity:2,notes:'White',pricing:{rateCents:1}},
+    {id:'starwood',productId:'starwood',name:'Study',width:36,height:48,quantity:1,notes:''},
+    {id:'custom',productId:'other',productLabel:'Example shades',name:'Office',width:36.58,height:625,quantity:1,notes:''}];
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:items,unitPrices:{custom:12345}}}));
+  assert.deepEqual(q.openings.map(o=>o.pricing.rateCents),[2500,4000,3000,null]);
+  assert.deepEqual(quoteTotals(q).lines.map(l=>l.lineTotal),[74376,112000,36000,12345]);
+  assert.equal(quoteTotals(q).total,234721);
+  const second=createShopService({store:fileStore(f.path),password,secret});
+  const loaded=await second.run('sales-get',{kind:'quote',id:q.id},f.owner);
+  assert.deepEqual(loaded.record,q);assert.equal(loaded.previews.length,4);assert.equal(loaded.previews[1],null);
+  assert.equal(loaded.record.openings[1].width,51.875);assert.equal(loaded.record.openings[1].height,36.58);
+  for(const change of [{productId:'shuttersmart'},{productId:'starwood'}])await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{openings:q.openings.map(o=>o.id==='elegant'?{...o,...change}:o)}}),/new line item/);
+  await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{openings:q.openings.map(o=>o.id==='custom'?{...o,productLabel:'Changed brand'}:o)}}),/new line item/);
+  // A stale client dropping product tags cannot reinterpret an existing line.
+  const untagged=q.openings.map(({productId,productLabel,pricing,...o})=>o);
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:untagged}}));
+  assert.deepEqual(q.openings.map(o=>o.productId),['shuttersmart','elegant-shutters','starwood','other']);
+  assert.equal(quoteTotals(q).total,234721);
+  await f.run('pricing-save',{productId:'elegant-shutters',version:1,rateCents:5000,minimumAreaHundredths:0});
+  assert.equal((await f.run('sales-get',{kind:'quote',id:q.id})).totals.total,234721);
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{useCurrentPricing:true}}));
+  assert.equal(quoteTotals(q).lines[1].lineTotal,131776);assert.equal(q.unitPrices.custom,12345);
+});
+
+test('mixed sold orders preserve every line but cut PDFs and shop jobs contain only ShutterSmart',async t=>{
+  const f=await fixture(t);let q=await quote(f,{items:[]});
+  const elegant={id:'elegant',productId:'elegant-shutters',name:'Elegant only',width:36.58,height:625,quantity:2,notes:'Shade only'},ss={...opening,productId:'shuttersmart'};
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[elegant,ss],unitPrices:{elegant:50000}}}));
+  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  assert.equal(order.openings.length,2);assert.equal(quoteTotals(order).total,174376);
+  const manufacturing=orderJob(order);assert.equal(manufacturing.openings.length,1);assert.equal(manufacturing.openings[0].id,ss.id);assert.ok(!JSON.stringify(manufacturing).includes('pricing'));
+  assert.equal((await f.run('dashboard')).pendingOrders[0].openingCount,1);
+  const summary=(await f.run('sales')).orders[0];assert.equal(summary.openingCount,2);assert.equal(summary.manufacturingOpeningCount,1);assert.match(summary.productNames,/Elegant Shutters.*ShutterSmart/);
+  const handler=shopHandler(f.service),request=(op,data)=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify(data)});
+  for(const [op,data]of [['sales-document',{kind:'quote',id:q.id}],['sales-document',{kind:'order',id:order.id}],['order-pdf',{id:order.id,units:'mm'}]]){
+    const response=await handler(request(op,data));assert.equal(response.status,200);
+    const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);
+  }
+  const {job}=await f.run('order-release',{id:order.id,version:order.version});
+  assert.equal(job.openings.length,1);assert.deepEqual(job.openings[0].result,calculate(ss));
+  assert.ok(!JSON.stringify(job).includes('Elegant only'));assert.ok(!JSON.stringify(job).includes('pricing'));
+  assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).record.openings.length,2);
+  const {code}=await f.run('pairing',{name:'Saw'}),shop={shop:(await f.service.run('pair',{code})).token};
+  assert.ok(!JSON.stringify(await f.service.run('jobs',{},shop)).includes('Elegant only'));
+});
+
+test('legacy nonmanufacturing quotes can add ShutterSmart without converting their other lines',async t=>{
+  const f=await fixture(t);await quote(f);
+  let {quote:q}=await f.run('quote-create',{id:'legacy-elegant',contactId:'contact-1',productId:'elegant-shutters'});
+  const legacy={id:'legacy',name:'Legacy shade',width:36,height:48,quantity:1,notes:''};
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[legacy],unitPrices:{legacy:30000}}}));
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[...q.openings,{...opening,productId:'shuttersmart'}]}}));
+  assert.deepEqual(q.openings[0],legacy);assert.equal(q.openings[1].pricing.rateCents,2500);
+  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  assert.equal(order.productId,'elegant-shutters');assert.equal(orderJob(order).productId,'shuttersmart');
+  assert.equal(orderJob(order).openings.length,1);
+  // Even a raw publish request must take the accepted order's filtered specifications.
+  const {job}=await f.run('publish',{job:{id:order.id,productId:'shuttersmart',name:'Forged',number:'Forged',openings:[{...opening,id:'forged',width:12}]}});
+  assert.equal(job.number,order.number);assert.equal(job.openings[0].input.id,opening.id);assert.equal(job.openings[0].input.width,36);
+  assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).record.openings.length,2);
+});
+
+test('explicit nonmanufacturing lines in a default quote never enter manufacturing',async t=>{
+  const f=await fixture(t);let q=await quote(f,{items:[]});
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{id:'only-elegant',productId:'elegant-shutters',name:'Shade',width:625,height:36.58,quantity:1,notes:''}],unitPrices:{'only-elegant':50000}}}));
+  assert.equal(q.openings[0].pricing.rateCents,null); // No accidental inheritance of the ShutterSmart rate.
+  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  assert.throws(()=>orderJob(order),/only for ShutterSmart/);
+  await assert.rejects(f.run('order-release',{id:order.id,version:order.version}),/only for ShutterSmart/);
+  assert.deepEqual((await f.run('dashboard')).pendingOrders,[]);
+  assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).productionStage,null);
 });

@@ -1,7 +1,7 @@
-import {productId,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
+import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
-import {salesOperations,runSales} from './sales-service.mjs';
+import {salesOperations,runSales,orderJob} from './sales-service.mjs';
 import {progress,production,finishingStages,stageStatus} from './public/shop-state.js';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -20,9 +20,11 @@ function stop(job,now){if(job.startedAt){job.elapsedMs+=Math.max(0,now-job.start
 function audit(job,actor,message,now){job.activity.unshift({at:now,by:actor.name,message});job.activity=job.activity.slice(0,200);job.version++;job.updatedAt=now;}
 
 function releaseJob(state,data,a,time){
-  const input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
+  let input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
-  if(!supportsCutSheets(input)||(state.orders?.[id]&&!supportsCutSheets(state.orders[id]))||(state.quotes?.[id]&&!supportsCutSheets(state.quotes[id])))fail(422,CUT_SHEETS_ONLY);
+  if(state.orders?.[id])input=orderJob(state.orders[id]);
+  else if(state.quotes?.[id]){if(!hasManufacturingLines(state.quotes[id]))fail(422,CUT_SHEETS_ONLY);fail(422,'Mark the quote sold before sending its ShutterSmart lines to the shop.');}
+  if(!supportsCutSheets(input))fail(422,CUT_SHEETS_ONLY);
   if(previous)fail(409,'This job is already in the shop. Its released cut sheet is kept unchanged.');
   if(Object.keys(state.jobs).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
   const seen=new Set(),openings=input.openings.map(o=>{
@@ -90,7 +92,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,
             ...(operation==='dashboard'?{
-              pendingOrders:Object.values(state.orders||{}).filter(order=>supportsCutSheets(order)&&!state.jobs[order.id]).map(({id,name,number,openings,createdAt})=>({id,name,number,openingCount:openings.length,createdAt})),
+              pendingOrders:Object.values(state.orders||{}).filter(order=>hasManufacturingLines(order)&&!state.jobs[order.id]).map(order=>({id:order.id,name:order.name,number:order.number,openingCount:manufacturingOpenings(order).length,createdAt:order.createdAt})),
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
         }
         if(operation==='pairing'){

@@ -1,4 +1,4 @@
-import {productName,supportsCutSheets} from './public/products.js';
+import {productName,lineProduct,isManufacturingLine,quoteProductNames} from './public/products.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {drawing} from './public/layouts.js';
 import {calculate} from './calculations.mjs';
@@ -16,14 +16,14 @@ export async function createSalesPDF({record:q,contact:c,totals:t},kind){
   newPage();paragraph(q.name,540,20,bold);y-=12;
   paragraph([c.firstName,c.lastName].filter(Boolean).join(' '),540,12,bold);
   for(const value of [c.address,c.phone,c.email])if(value)paragraph(value);
-  y-=10;paragraph(productName(q)+'  /  '+new Date(q.createdAt).toLocaleDateString('en-US',{timeZone:'America/New_York'}),540,9);
+  y-=10;paragraph(quoteProductNames(q)+'  /  '+new Date(q.createdAt).toLocaleDateString('en-US',{timeZone:'America/New_York'}),540,9);
   if(q.validUntil&&kind==='quote')paragraph('Valid through '+q.validUntil,540,9);
   y-=14;
   if(!q.openings.length)paragraph('No openings added yet.');
   for(const [i,o]of q.openings.entries()){
-    if(!supportsCutSheets(q)){
+    if(!isManufacturingLine(o,q)){
       const line=t.lines.find(l=>l.openingId===o.id),title=wrap(String(i+1).padStart(2,'0')+'  '+o.name,380,12,bold);
-      const description=wrap(o.width+'" W x '+o.height+'" H',510,10),notes=o.notes?wrap(o.notes,510,9):[];
+      const description=wrap(productName(lineProduct(o,q))+' / '+o.width+'" W x '+o.height+'" H',510,10),notes=o.notes?wrap(o.notes,510,9):[];
       const chunks=notes.length?Array.from({length:Math.ceil(notes.length/32)},(_,n)=>notes.slice(n*32,(n+1)*32)):[[]];
       for(const [chunkIndex,chunk]of chunks.entries()){
         const height=58+title.length*16+description.length*15+chunk.length*13;
@@ -38,7 +38,7 @@ export async function createSalesPDF({record:q,contact:c,totals:t},kind){
       continue;
     }
     const line=t.lines.find(l=>l.openingId===o.id),config=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' / T / '):'L'.repeat(o.left)+'R'.repeat(o.right);
-    const description=[o.width+'" W x '+o.height+'" H',frameStyle(o).name,o.mount==='I'?'Inside mount':'Outside mount',o.louver+'" louvers',o.tilt==='Smart'?'Smart View':o.tilt+' tilt',({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],config].join(' / ');
+    const description=[productName(lineProduct(o,q)),o.width+'" W x '+o.height+'" H',frameStyle(o).name,o.mount==='I'?'Inside mount':'Outside mount',o.louver+'" louvers',o.tilt==='Smart'?'Smart View':o.tilt+' tilt',({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],config].join(' / ');
     const details=wrap(description,290,9),title=wrap(String(i+1).padStart(2,'0')+'  '+o.name,290,12,bold),height=Math.max(130,50+details.length*13+title.length*15);
     ensure(height);page.drawRectangle({x:36,y:y-height+10,width:540,height,color:i%2?pale:rgb(1,1,1),borderColor:rgb(.88,.88,.88),borderWidth:.6});let top=y-10;
     for(const name of title){text(name,170,top,12,bold);top-=15;}
