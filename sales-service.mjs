@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {calculate} from './calculations.mjs';
 import {production} from './public/shop-state.js';
+import {formatContactAddress} from './public/contact-address.js';
 
 export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-save','quote-convert','order-release'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
@@ -12,6 +13,18 @@ const date=value=>{if(value==='')return '';if(typeof value!=='string'||!/^\d{4}-
 const get=(collection,id)=>{const record=collection[identifier(id)];if(!record)fail(404,'This record was not found.');return record;};
 const current=(record,version)=>{if(record.version!==version)fail(409,'This record changed on another device. Reload it before saving again.');};
 const contactName=c=>[c.firstName,c.lastName].filter(Boolean).join(' ');
+function contactAddress(fields,previous){
+  if(['streetAddress','city','zipCode'].some(key=>key in fields)){
+    if(fields.state!==undefined&&!['FL','Florida'].includes(fields.state))fail(400,'Contact addresses use Florida.');
+    const address={streetAddress:text(fields.streetAddress??'','street address',500),city:text(fields.city??'','city',100),state:'FL',zipCode:text(fields.zipCode??'','ZIP code',10)};
+    if(address.zipCode&&!/^\d{5}(?:-\d{4})?$/.test(address.zipCode))fail(400,'Enter a 5-digit ZIP code or ZIP+4, such as 34102 or 34102-1234.');
+    return {...address,address:formatContactAddress(address)};
+  }
+  const address=text(fields.address,'address',650);
+  // Older open tabs may still save a combined address; never leave stale components.
+  return previous?.streetAddress!==undefined&&address===previous.address?
+    {address,streetAddress:previous.streetAddress,city:previous.city,state:previous.state,zipCode:previous.zipCode}:{address};
+}
 export function quoteTotals(quote){
   let subtotal=0,unpriced=0;
   const lines=quote.openings.map(opening=>{
@@ -52,7 +65,9 @@ export async function runSales(state,operation,data,time,publish){
   if(operation==='contact-save'){
     const id=identifier(data.id),previous=state.contacts[id];if(previous)current(previous,data.version);else if(data.version!==0)fail(409,'This contact no longer exists.');
     if(!previous&&Object.keys(state.contacts).length>=2000)fail(400,'Contact capacity reached.');
-    const fields=data.fields||{},contact={id,firstName:text(fields.firstName,'first name',80),lastName:text(fields.lastName,'last name',80),address:text(fields.address,'address',500),phone:text(fields.phone,'phone number',60),email:text(fields.email,'email',254),notes:text(fields.notes,'contact notes',10000),createdAt:previous?.createdAt||time,updatedAt:time,version:(previous?.version||0)+1};
+    const fields=data.fields||{};
+    if(typeof fields!=='object'||Array.isArray(fields))fail(400,'Enter valid contact details.');
+    const contact={id,firstName:text(fields.firstName,'first name',80),lastName:text(fields.lastName,'last name',80),...contactAddress(fields,previous),phone:text(fields.phone,'phone number',60),email:text(fields.email,'email',254),notes:text(fields.notes??previous?.notes??'','contact notes',10000),createdAt:previous?.createdAt||time,updatedAt:time,version:(previous?.version||0)+1};
     if(!contactName(contact))fail(400,'Enter a first or last name.');
     if(contact.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email))fail(400,'Enter a valid email address.');
     state.contacts[id]=contact;return {contact};

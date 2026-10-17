@@ -12,6 +12,7 @@ import {calculate} from '../calculations.mjs';
 import {printedReferences} from './printed-reference-cases.mjs';
 import {parseMeasurement} from '../public/measurements.js';
 import {finishingStages} from '../public/shop-state.js';
+import {contactAddressFields} from '../public/contact-address.js';
 const password='test-owner-password',secret='test-signing-key-with-more-than-32-characters';
 const contact={firstName:'Alex',lastName:'Rivera',address:'123 Example Lane\nNaples, FL',phone:'555-0100',email:'alex@example.com',notes:'PRIVATE: site access instructions'};
 const opening={id:'opening-1',name:'Living room',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,divisionMode:'divider',notes:'Keep panels labeled.'};
@@ -70,4 +71,37 @@ test('new orders wait on the owner board and track shop production without dupli
   assert.equal((await f.run('sales')).orders[0].productionStage,'complete');
   assert.equal((await f.run('sales-get',{kind:'contact',id:'contact-1'})).orders[0].productionStage,'complete');
   assert.deepEqual((await detail()).record.openings,order.openings);
+});
+
+test('structured Florida addresses persist, retain private notes, and freeze correctly on orders',async t=>{
+  const f=await fixture(t),q=await quote(f);
+  const fields={firstName:'Alex',lastName:'Rivera',streetAddress:'123 Example Lane\nUnit 2',city:'Naples',zipCode:'34102-1234',phone:contact.phone,email:contact.email};
+  const {contact:saved}=await f.run('contact-save',{id:'contact-1',version:1,fields});
+  assert.equal(saved.state,'FL');assert.equal(saved.address,'123 Example Lane\nUnit 2\nNaples, FL 34102-1234');
+  assert.equal(saved.notes,contact.notes);
+  const second=createShopService({store:fileStore(f.path),password,secret});
+  assert.deepEqual((await second.run('sales-get',{kind:'contact',id:saved.id},f.owner)).contact,saved);
+  for(const invalid of [{zipCode:'3410'},{zipCode:'34abc'},{state:'CA'}])await assert.rejects(f.run('contact-save',{id:saved.id,version:saved.version,fields:{...fields,...invalid}}),e=>e.status===400);
+  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  assert.equal(order.customer.address,saved.address);assert.equal(order.customer.zipCode,'34102-1234');
+  await f.run('contact-save',{id:saved.id,version:saved.version,fields:{...fields,city:'Bonita Springs',zipCode:'34135'}});
+  const frozen=await f.run('sales-get',{kind:'order',id:order.id});
+  assert.equal(frozen.contact.address,saved.address);
+  assert.equal((await f.run('sales-get',{kind:'quote',id:q.id})).contact.city,'Bonita Springs');
+});
+
+test('legacy address editing preserves unrecognized text and old clients cannot leave stale components',async t=>{
+  assert.deepEqual(contactAddressFields(contact),{streetAddress:'123 Example Lane',city:'Naples',zipCode:''});
+  assert.deepEqual(contactAddressFields({address:'123 Example Lane, Naples, Florida 34102'}),{streetAddress:'123 Example Lane',city:'Naples',zipCode:'34102'});
+  const legacy='Example building\nUnit 22\nSavannah, GA 31401';
+  assert.deepEqual(contactAddressFields({address:legacy}),{streetAddress:legacy,city:'',zipCode:''});
+  const f=await fixture(t);
+  let {contact:saved}=await f.run('contact-save',{id:'contact-1',version:0,fields:{...contact,...contactAddressFields({address:legacy})}});
+  assert.equal(saved.address,legacy);
+  ({contact:saved}=await f.run('contact-save',{id:saved.id,version:saved.version,fields:{...contact,address:saved.address}}));
+  assert.equal(saved.streetAddress,legacy);
+  ({contact:saved}=await f.run('contact-save',{id:saved.id,version:saved.version,fields:{...contact,address:'A changed legacy address'}}));
+  assert.equal(saved.streetAddress,undefined);assert.equal(saved.address,'A changed legacy address');
+  const {contact:empty}=await f.run('contact-save',{id:'empty-address',version:0,fields:{...contact,streetAddress:'',city:'',zipCode:''}});
+  assert.equal(empty.address,'');assert.equal(empty.state,'FL');
 });
