@@ -1,3 +1,6 @@
+import {salesOperations,SalesError,orderJob} from './sales-service.mjs';
+import {createSalesPDF} from './sales-pdf.mjs';
+import {createPDF} from './pdf.mjs';
 import {ShopError} from './shop-service.mjs';
 import {ValidationError} from './calculations.mjs';
 
@@ -6,8 +9,8 @@ const cookieNames={owner:'cutsheet_owner',shop:'cutsheet_shop'};
 export function shopHandler(service) {
   return async request=>{
     const url=new URL(request.url),operation=url.pathname.split('/').pop();
-    if(!['session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
-    const read=['session','jobs','dashboard'].includes(operation);
+    if(![...salesOperations,'sales-document','order-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
+    const read=['sales','session','jobs','dashboard'].includes(operation);
     if(request.method!==(read?'GET':'POST'))return json(405,{error:read?'GET required.':'POST required.'});
     if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});
     if(!read&&!request.headers.get('content-type')?.startsWith('application/json'))return json(415,{error:'Expected JSON.'});
@@ -27,12 +30,20 @@ export function shopHandler(service) {
       }
       // Only trust Netlify's overwritten client-IP header in hosted functions.
       data.client=request.headers.get('x-nf-client-connection-ip')||'local';
-      const result=await service.run(operation,data,{owner:cookies.cutsheet_owner,shop:cookies.cutsheet_shop});
+      const cookie={owner:cookies.cutsheet_owner,shop:cookies.cutsheet_shop};
+      if(operation==='sales-document'||operation==='order-pdf'){
+        if(operation==='order-pdf'&&data.units!==undefined&&!['mm','in'].includes(data.units))return json(400,{error:'Choose inches or millimeters.'});
+        const record=await service.run('sales-get',{kind:operation==='order-pdf'?'order':data.kind,id:data.id},cookie);
+        if(!record.record)return json(400,{error:'Choose a quote or order.'});
+        const pdf=operation==='order-pdf'?await createPDF(orderJob(record.record),{units:data.units||'mm'}):await createSalesPDF(record,data.kind);
+        return new Response(pdf,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+record.record.number+(operation==='order-pdf'?'-cut-sheets':'')+'.pdf"','Cache-Control':'no-store'}});
+      }
+      const result=await service.run(operation,data,cookie);
       if(result.error)return json(result.status||400,{error:result.error});
       if(result.cookie)return json(200,{ok:true},{'Set-Cookie':setCookie(result.cookie,result.token,result.maxAge)});
       return json(200,result);
     }catch(error){
-      if(error instanceof ShopError)return json(error.status,{error:error.message});
+      if(error instanceof ShopError||error instanceof SalesError)return json(error.status,{error:error.message});
       if(error instanceof ValidationError)return json(422,{error:error.message});
       return json(503,{error:'Shop updates could not be saved. Check the connection and try again.'});
     }

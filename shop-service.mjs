@@ -1,5 +1,6 @@
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
+import {salesOperations,runSales} from './sales-service.mjs';
 import {progress} from './public/shop-state.js';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -16,6 +17,23 @@ function plan(data){
 }
 function stop(job,now){if(job.startedAt){job.elapsedMs+=Math.max(0,now-job.startedAt);job.startedAt=null;}}
 function audit(job,actor,message,now){job.activity.unshift({at:now,by:actor.name,message});job.activity=job.activity.slice(0,200);job.version++;job.updatedAt=now;}
+
+function releaseJob(state,data,a,time){
+  const input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
+  const id=identifier(input.id),previous=state.jobs[id];
+  if(previous)fail(409,'This job is already in the shop. Its released cut sheet is kept unchanged.');
+  if(Object.keys(state.jobs).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
+  const seen=new Set(),openings=input.openings.map(o=>{
+    identifier(o.id);if(seen.has(o.id))fail(400,'Opening IDs must be unique.');seen.add(o.id);
+    text(o.name,'opening name',80);const result=calculate(o);
+    if(result.warnings.length)fail(422,`${o.name}: ${result.warnings.join(' ')}`);
+    if(!result.parts.length)fail(422,`${o.name} has no calculated cut lines.`);
+    return {input:structuredClone(o),result,lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
+  });
+  const job={id,name:text(input.name,'job name',100),number:text(input.number,'job number'),notes:text(input.notes||'','shop notes',1200,false),
+    ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,activity:[]};
+  audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
+}
 
 export function createShopService({store,local=false,password='',secret='',now=()=>Date.now()}) {
   const setupIssues=[
@@ -60,6 +78,7 @@ export function createShopService({store,local=false,password='',secret='',now=(
           delete state.pairings[hash(code)];delete state.attempts[key];
           return {cookie:'shop',token,maxAge:180*86400};
         }
+        if(salesOperations.includes(operation)){const a=requireActor(state,cookie,true);return runSales(state,operation,data,time,release=>releaseJob(state,release,a,time));}
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,
@@ -71,22 +90,7 @@ export function createShopService({store,local=false,password='',secret='',now=(
           return {code:code.match(/.{4}/g).join('-'),expires:time+10*60000};
         }
         if(operation==='revoke'){const device=Object.values(state.devices).find(d=>d.id===data.deviceId);if(!device)fail(404,'Device not found.');device.revoked=true;return {ok:true};}
-        if(operation==='publish'){
-          const input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
-          const id=identifier(input.id),previous=state.jobs[id];
-          if(previous)fail(409,'This job is already in the shop. Its released cut sheet is kept unchanged.');
-          if(Object.keys(state.jobs).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
-          const seen=new Set(),openings=input.openings.map(o=>{
-            identifier(o.id);if(seen.has(o.id))fail(400,'Opening IDs must be unique.');seen.add(o.id);
-            text(o.name,'opening name',80);const result=calculate(o);
-            if(result.warnings.length)fail(422,`${o.name}: ${result.warnings.join(' ')}`);
-            if(!result.parts.length)fail(422,`${o.name} has no calculated cut lines.`);
-            return {input:structuredClone(o),result,lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
-          });
-          const job={id,name:text(input.name,'job name',100),number:text(input.number,'job number'),notes:text(input.notes||'','shop notes',1200,false),
-            ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,activity:[]};
-          audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
-        }
+        if(operation==='publish')return releaseJob(state,data,a,time);
         const job=jobFor(state,data);
         if(operation==='plan'){Object.assign(job,plan(data));audit(job,a,'Updated cutting estimate and target date',time);return {job};}
         if(operation==='timer'){

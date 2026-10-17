@@ -98,6 +98,18 @@ The user-provided panel configuration reference (September 21, 2026) defines the
 The opening schematic occupies a full-width row below the measurements and automatically fits its SVG bounds, preserving the opening aspect ratio on wide T-post jobs. The 106-inch direct-entry cap applies to standard openings only; T-post jobs use original section-width and frame warnings. Post order and opening bounds are checked inline, and invalid positions suppress the drawing until corrected.
 
 
+## Contacts, quotes, pricing, and orders
+
+Open `/contacts.html` from **Contacts & quotes**. The owner workspace stores contact names, addresses, phone numbers, email addresses, and private notes. Each contact shows its quotes and orders. Set the Shutter Smart price per square foot and optional minimum area per unit in **Pricing**, then create a quote and use **Configure openings** to enter the same shutter specifications used by the cut-sheet editor.
+
+Billable area is `max(width × height ÷ 144, minimum area)` with dimensions in inches. The unit price rounds to cents before multiplying by quantity. Quote details support installation, discount, tax, expiration date, and customer-facing notes. Tax is calculated on the shutter subtotal after discount plus installation. Each quote saves its pricing; changing the Pricing tab affects future quotes unless **Use current pricing** is explicitly selected. No live rate is supplied by the app.
+
+**Convert to order** preserves the customer details, prices, and opening specifications and locks the source quote. The order can produce quote-style order PDFs, original manufacturing cut-sheet PDFs, and a shop release. Repeated conversion or release requests return the same record. Manufacturing warnings, including unacceptable light gaps, still block cut-sheet PDFs and shop release. Order editing and revision management are not included in this first version.
+
+Contacts, quotes, pricing, and orders use the existing shared Supabase workshop transaction store in production, and `.data/workshop.json` locally. Existing records remain compatible; no separate schema migration or client database credentials are needed. Owner access is required for every sales endpoint and sales PDF. Paired shop devices receive only the released manufacturing data, without prices, contact email/address, or private contact notes. Shared records use version checks to prevent overwriting edits from another device. Existing standalone browser jobs and uploaded logos retain their original browser-local storage.
+
+The local preview skips codes and passwords on this computer. Demonstration contacts and sample rates entered locally do not seed the production database. Tests in `test/sales.test.mjs` cover pricing precision, persistence, authorization, frozen orders, retries, stale updates, PDF routes, and manufacturing handoff.
+
 ## Digital shop floor and owner dashboard
 
 Open `/owner.html` for production progress and `/shop.html` for the iPad cut sheets. From a saved job, **Send to shop** publishes a fixed, server-calculated copy. Draft edits never change released dimensions or quantities. Releasing the same job twice is rejected; revision/re-release management is not included yet. Material shortages are dashboard alerts, not email or push notifications.
