@@ -22,6 +22,8 @@ Anyone with the site URL can use the calculator, but they cannot read another br
 
 ## Measurement basis and light gap
 
+Measurement fields accept decimal inches such as `51.875`, `36.58`, and `.625`, as well as fractions such as `36 5/8`. Millimeter inputs accept whole numbers and decimals, including `625` and `625.625`. Width, height, divider, and T-post fields retain entered precision when reopened; a bare `625` means 625 in the selected unit. Quote pricing uses the saved dimensions. Manufacturing size limits and the original workbook's own rounding rules still apply.
+
 New openings default to **Shutter size**, matching the original workbook’s current `S` input (`SHUTTER FRM` on the print sheet). The measurement-type control sits beside width and height. Existing saved openings keep their original basis. Choose **Window opening size** only when entering window measurements that still need the workbook’s fitting deductions; mount position is a separate setting. For the 36.875 × 45 inch trim-frame Inside reference, selecting Window opening instead of Shutter size shortens louvers/rails by 3.175 mm and stiles/frames by 6.35 mm.
 
 Light gap comes directly from the original workbook output (`PRINT SHEET!L9` or `T Post Cutsheet!L8`), and appears in the editor, cut-sheet preview, individual PDF, and combined PDF. It follows the selected output units. Calculations retain the unrounded value.

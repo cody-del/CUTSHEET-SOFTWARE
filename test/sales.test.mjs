@@ -10,6 +10,7 @@ import {shopHandler} from '../shop-api.mjs';
 import {salesOperations,quoteTotals} from '../sales-service.mjs';
 import {calculate} from '../calculations.mjs';
 import {printedReferences} from './printed-reference-cases.mjs';
+import {parseMeasurement} from '../public/measurements.js';
 const password='test-owner-password',secret='test-signing-key-with-more-than-32-characters';
 const contact={firstName:'Alex',lastName:'Rivera',address:'123 Example Lane\nNaples, FL',phone:'555-0100',email:'alex@example.com',notes:'PRIVATE: site access instructions'};
 const opening={id:'opening-1',name:'Living room',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,divisionMode:'divider',notes:'Keep panels labeled.'};
@@ -23,6 +24,16 @@ test('contacts, prices, quote PDFs and orders are inaccessible to anonymous and 
 test('square-foot pricing rounds each unit once, respects minimums, and snapshots rates per quote',async t=>{const f=await fixture(t),q=await quote(f);const t1=quoteTotals(q);assert.equal(t1.lines[0].area,14.875);assert.equal(t1.lines[0].unitPrice,37188);assert.equal(t1.subtotal,74376);await f.run('pricing-save',{version:1,rateCents:3000,minimumAreaHundredths:2000});assert.equal((await f.run('sales-get',{kind:'quote',id:q.id})).totals.total,74376);const {quote:repriced,totals}=await f.run('quote-save',{id:q.id,version:q.version,fields:{useCurrentPricing:true,installationCents:10000,discountCents:5000,taxBasisPoints:700}});assert.equal(totals.subtotal,120000);assert.equal(totals.tax,8750);assert.equal(totals.total,133750);assert.equal(repriced.pricing.minimumAreaHundredths,2000);});
 
 test('conversion is idempotent and freezes contact, openings and prices',async t=>{const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});assert.equal((await f.run('quote-convert',{id:q.id,version:q.version})).order.id,order.id);await f.run('contact-save',{id:'contact-1',version:1,fields:{...contact,address:'Changed address'}});await f.run('pricing-save',{version:1,rateCents:9999,minimumAreaHundredths:0});const frozen=await f.run('sales-get',{kind:'order',id:order.id});assert.equal(frozen.contact.address,contact.address);assert.deepEqual(frozen.record.openings,[opening]);assert.equal(frozen.totals.total,74376);const current=await f.run('sales-get',{kind:'quote',id:q.id});await assert.rejects(f.run('quote-save',{id:q.id,version:current.record.version,fields:{name:'Changed'}}),/cannot be changed/);assert.equal((await f.run('sales')).orders.length,1);});
+
+test('decimal dimensions survive quote storage and order conversion with cent-accurate pricing',async t=>{
+  const f=await fixture(t),item={...opening,width:parseMeasurement('51.875'),height:parseMeasurement('36.58')};
+  const q=await quote(f,{items:[item]});
+  const saved=await f.run('sales-get',{kind:'quote',id:q.id});
+  assert.equal(saved.record.openings[0].width,51.875);assert.equal(saved.record.openings[0].height,36.58);
+  assert.equal(saved.totals.lines[0].unitPrice,32944);assert.equal(saved.totals.total,65888);
+  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  assert.deepEqual(order.openings,[item]);
+});
 
 test('order release keeps exact manufacturing inputs, is retry-safe and does not expose contact notes or pricing',async t=>{const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});const {job}=await f.run('order-release',{id:order.id,version:order.version,targetMinutes:90,due:'2026-12-10'});assert.deepEqual(job.openings[0].input,opening);assert.deepEqual(job.openings[0].result,calculate(opening));assert.equal(job.number,order.number);assert.equal(job.targetMinutes,90);assert.equal((await f.run('order-release',{id:order.id,version:order.version})).job.id,job.id);const {code}=await f.run('pairing',{name:'Saw'}),shop={shop:(await f.service.run('pair',{code})).token};const shopData=JSON.stringify(await f.service.run('jobs',{},shop));assert.ok(!shopData.includes(contact.email));assert.ok(!shopData.includes('PRIVATE'));assert.ok(!shopData.includes('unitPrices'));assert.ok(!shopData.includes('Customer quote note'));});
 
