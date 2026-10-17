@@ -174,3 +174,34 @@ test('untagged saved quotes and orders remain ShutterSmart with unchanged cut ou
   assert.equal((await run('sales')).orders[0].productId,'shuttersmart');
   const {job}=await run('order-release',{id:order.id,version:order.version});assert.equal(job.productId,'shuttersmart');assert.deepEqual(job.openings[0].result,calculate(opening));
 });
+
+test('empty quote product selection switches pricing and layout identity while preserving its contact and number',async t=>{
+  const f=await fixture(t),original=await quote(f,{items:[]});
+  await f.run('pricing-save',{productId:'elegant-shutters',version:0,rateCents:4000,minimumAreaHundredths:1200});
+  const {quote:elegant}=await f.run('quote-product',{id:original.id,version:original.version,productId:'elegant-shutters'});
+  assert.equal(elegant.productId,'elegant-shutters');assert.equal(elegant.name,'Elegant Shutters');
+  assert.equal(elegant.pricing.rateCents,4000);assert.equal(elegant.pricing.minimumAreaHundredths,1200);
+  assert.equal(elegant.contactId,original.contactId);assert.equal(elegant.number,original.number);assert.equal(elegant.notes,original.notes);
+  assert.equal(elegant.version,original.version+1);assert.deepEqual(elegant.openings,[]);
+  await assert.rejects(f.run('quote-product',{id:original.id,version:original.version,productId:'rockwell'}),e=>e.status===409);
+  const {quote:rockwell}=await f.run('quote-product',{id:elegant.id,version:elegant.version,productId:'rockwell'});
+  assert.equal(rockwell.name,'Rockwell');assert.equal(rockwell.pricing.rateCents,null);
+  const {quote:custom}=await f.run('quote-product',{id:rockwell.id,version:rockwell.version,productId:'other',productLabel:'Example shades'});
+  assert.equal(custom.productLabel,'Example shades');assert.equal(custom.name,'Example shades');
+  const {quote:back}=await f.run('quote-product',{id:custom.id,version:custom.version,productId:'shuttersmart'});
+  assert.equal(back.name,'ShutterSmart');assert.equal(back.productLabel,undefined);assert.equal(back.pricing.rateCents,2500);
+  assert.equal((await f.run('sales')).quotes.length,1);
+});
+
+test('product changes cannot overwrite line items, sold orders, or concurrent changes',async t=>{
+  const f=await fixture(t),q=await quote(f);
+  await assert.rejects(f.run('quote-product',{id:q.id,version:q.version,productId:'elegant-shutters'}),/separate quote/);
+  assert.deepEqual((await f.run('sales-get',{kind:'quote',id:q.id})).record.openings,q.openings);
+  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+  await assert.rejects(f.run('quote-product',{id:q.id,version:q.version+1,productId:'rockwell'}),/cannot be changed/);
+  assert.deepEqual((await f.run('sales-get',{kind:'order',id:order.id})).record.openings,q.openings);
+  const {quote:empty}=await f.run('quote-create',{id:'empty-custom',contactId:'contact-1',name:'Customer-selected name'});
+  for(const data of [{productId:'unknown'},{productId:'other',productLabel:''}])await assert.rejects(f.run('quote-product',{id:empty.id,version:empty.version,...data}),e=>e.status===400);
+  const {quote:changed}=await f.run('quote-product',{id:empty.id,version:empty.version,productId:'rockwell'});
+  assert.equal(changed.name,'Customer-selected name');
+});

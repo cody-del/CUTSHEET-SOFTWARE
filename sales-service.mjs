@@ -1,11 +1,11 @@
 import {quotePricing} from './public/quote-pricing.js';
-import {PRODUCTS,productId,productFor,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
+import {PRODUCTS,productId,productFor,productName,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {randomUUID} from 'node:crypto';
 import {calculate} from './calculations.mjs';
 import {production} from './public/shop-state.js';
 import {formatContactAddress} from './public/contact-address.js';
 
-export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-save','quote-convert','order-release'];
+export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
 const fail=(status,message)=>{throw new SalesError(status,message);};
 const identifier=value=>{if(typeof value!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(value)||['__proto__','constructor','prototype'].includes(value))fail(400,'Invalid record identifier.');return value;};
@@ -91,6 +91,16 @@ export async function runSales(state,operation,data,time,publish){
     if(Object.keys(state.quotes).length>=1000)fail(400,'Quote capacity reached.');
     const quote={id,contactId:contact.id,productId:product.id,...(product.id==='other'?{productLabel:text(data.productLabel,'brand name',80,true)}:{}),number:'Q-'+String(++state.salesCounters.quote).padStart(4,'0'),name:text(data.name||product.name,'quote name',100,true),status:'draft',pricing:structuredClone(pricingFor(data)),openings:[],unitPrices:{},installationCents:0,discountCents:0,taxBasisPoints:0,notes:'',validUntil:'',createdAt:time,updatedAt:time,version:1};
     state.quotes[id]=quote;return {quote};
+  }
+  if(operation==='quote-product'){
+    const previous=get(state.quotes,data.id);current(previous,data.version);
+    if(previous.status==='ordered')fail(409,'This quote has been converted to an order and cannot be changed.');
+    if(previous.openings.length)fail(409,'Start a separate quote for this product to keep the existing line items.');
+    const product=requireProduct(data),label=product.id==='other'?text(data.productLabel,'brand name',80,true):undefined;
+    const quote={...structuredClone(previous),productId:product.id,pricing:structuredClone(pricingFor(data)),unitPrices:{},status:'draft'};
+    delete quote.productLabel;if(label)quote.productLabel=label;
+    if([productName(previous),'Shutter Smart shutters'].includes(previous.name))quote.name=productName(quote);
+    quoteTotals(quote);state.quotes[quote.id]=touch(quote);return {quote};
   }
   if(operation==='quote-save'){
     const previous=get(state.quotes,data.id);current(previous,data.version);if(previous.status==='ordered')fail(409,'This quote has been converted to an order and cannot be changed.');
