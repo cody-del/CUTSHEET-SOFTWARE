@@ -1,6 +1,6 @@
 import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {drawing} from './public/layouts.js';
-import {cutSheetFacts,cutSheetNotes,louverSummary,machiningLabel} from './public/cut-sheet.js';
+import {cutSheetFacts,cutSheetNotes,louverSummary,machiningLabel,firstLouverHole} from './public/cut-sheet.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {calculate,combinedParts,ValidationError,configuration} from './calculations.mjs';
 const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
@@ -42,7 +42,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const {gap,cw,size,rows}=factsLayout(items,options),start=y;
     for(const {group,height}of rows){
       ensure(height+gap,'Machining continued');
-      group.forEach((cell,col)=>{const xx=x+col*(cw+gap);rect(xx,y-height,cw,height,col%2===0?pale:white,true);let yy=y-10;cell.label.forEach(l=>{text(l,xx+7,yy,7,regular,muted);yy-=8;});cell.value.forEach(l=>{text(l,xx+7,yy,size,bold);yy-=size+2;});});
+      group.forEach((cell,col)=>{const xx=x+col*(cw+gap);rect(xx,y-height,cw,height,col%2===0?pale:white,true);let yy=y-10;const keyDatum=cell.label.join(' ')==='First louver hole from top';cell.label.forEach(l=>{text(l,xx+7,yy,7,keyDatum?bold:regular,keyDatum?ink:muted);yy-=8;});cell.value.forEach(l=>{text(l,xx+7,yy,size,bold);yy-=size+2;});});
       y-=height+gap;
     }
     return start-y;
@@ -155,8 +155,12 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     completionChecklist(job.openings);
   }else for(let index=0;index<results.length;index++){
     const {o,result}=results[index];openingLabel=`${String(index+1).padStart(2,'0')}  ${o.name||'Untitled opening'}`;newPage(openingLabel);
-    const top=y;
-    facts(cutSheetFacts(o,result,{length,units}),{w:350,compact:true,dense:result.parts.length>12});
+    const firstHole=firstLouverHole(result),summary=cutSheetFacts(o,result,{length,units}),top=y;
+    // Keep the drilling datum next to quantity without adding height to a
+    // densely populated T-post page. Preserve the input basis with dimensions.
+    facts([summary[1],['First louver hole from top',firstHole===null?'Not available':length(firstHole)+' '+units],
+      [`${summary[0][0]} · ${summary[6][1]}`,summary[0][1]],...summary.slice(2,6),summary[7]],
+      {w:350,compact:true,dense:result.parts.length>12});
     schematic(o,result,397,top,183,Math.min(130,top-y-15));
     y-=5;
     if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}`);

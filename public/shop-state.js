@@ -15,8 +15,13 @@ export const productionChecks=[
 ];
 // Older jobs recorded one Capping check. Preserve that work until a worker
 // explicitly updates either of the new independent checks.
-export const checkStatus=(job,key)=>job.production?.[key]?.status||
-  (['louvers-capped','stiles-capped'].includes(key)?job.production?.capping?.status:null)||'not-started';
+const recordedStatus=(record,key)=>record?.[key]?.status||
+  (['louvers-capped','stiles-capped'].includes(key)?record?.capping?.status:null);
+export const openingCheckStatus=(job,opening,key)=>recordedStatus(opening.production,key)||recordedStatus(job.production,key)||'not-started';
+export function checkStatus(job,key){
+  const statuses=job.openings.map(opening=>openingCheckStatus(job,opening,key));
+  return statuses.length&&statuses.every(s=>s==='complete')?'complete':statuses.some(s=>s!=='not-started')?'partial':'not-started';
+}
 export function stageStatus(job,key){
   if(key!=='capping')return checkStatus(job,key);
   const statuses=['louvers-capped','stiles-capped'].map(key=>checkStatus(job,key));
@@ -33,6 +38,12 @@ export function production(job) {
   }
   return finishingStages.find(stage=>stageStatus(job,stage.key)!=='complete')||productionStages.at(-1);
 }
+export function openingProduction(job,opening){
+  // A job timer alone does not mean every opening has started.
+  return production({...job,openings:[opening],cuttingStartedAt:null,startedAt:null,elapsedMs:0,completedAt:null});
+}
+export const openingProgress=opening=>progress({openings:[opening]});
+export const completedOpenings=job=>job.openings.filter(opening=>openingProduction(job,opening).key==='complete').length;
 export function elapsed(job, now=Date.now()) {
   return (job.elapsedMs||0)+(job.startedAt?Math.max(0,now-job.startedAt):0);
 }

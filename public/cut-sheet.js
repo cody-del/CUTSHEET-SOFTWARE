@@ -1,5 +1,10 @@
 import {frameStyle} from './frames.js';
 
+export function firstLouverHole(result){
+  const value=result?.machining?.find(m=>m.label==='First louver hole from stile top')?.value;
+  return Number.isFinite(value)&&value>0?value:null;
+}
+
 export const louverSummary=result=>{
   const l=result?.louverLayout;
   return !l?'':l.divided?`${l.top} above, ${l.bottom} below per panel`:`${l.total} louvers per panel`;
