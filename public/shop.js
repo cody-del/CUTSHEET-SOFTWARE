@@ -1,5 +1,5 @@
 import {workspaceNav,breadcrumbs,remember,sessionValue,keepScroll,restoreScroll,navigateState,installNavigationGuard} from './workspace-nav.js';
-import {shopRequest} from './shop-client.js';
+import {shopRequest,cachedShop,warmWorkspace} from './shop-client.js';
 import {progress,elapsed,schedule,duration,productionStages,productionChecks,production,openingCheckStatus,openingProduction,openingProgress,completedOpenings} from './shop-state.js';
 import {drawingSVG} from './layouts.js';
 import {cutSheetFacts,cutSheetNotes,machiningLabel,firstLouverHole} from './cut-sheet.js';
@@ -9,7 +9,7 @@ const $=s=>document.querySelector(s),h=s=>String(s??'').replace(/[&<>"']/g,c=>({
 const mode=document.body.dataset.workshop,owner=mode==='owner',logo=loadLogo();
 let heldSheet=null,detailError='';
 const isOwner=()=>session?.role==='owner';
-let session=null,jobs=[],devices=[],pendingOrders=[],selected=new URLSearchParams(location.search).get('job'),filter=new URLSearchParams(location.search).get('filter')||sessionValue('production-filter:'+mode,'all'),connectionError='',busy=false,offset=0,loaded=false,lastSync=0,refreshing=null,scheduleKey='';
+let session=null,jobs=[],devices=[],pendingOrders=[],selected=new URLSearchParams(location.search).get('job'),filter=new URLSearchParams(location.search).get('filter')||sessionValue('production-filter:'+mode,'all'),connectionError='',busy=false,offset=0,loaded=false,lastSync=0,lastPreload=0,refreshing=null,scheduleKey='';
 if(!['all','attention'].includes(filter))filter='all';
 const now=()=>Date.now()+offset,current=()=>jobs.find(j=>j.id===selected)||(heldSheet?.id===selected?heldSheet:null);
 const cut=(n,units)=>units==='in'?(n/25.4).toFixed(4):n.toFixed(2);
@@ -75,8 +75,13 @@ async function refresh({quiet=false}={}){
 async function loadLatest(quiet){
   try{
     if(!session?.role){session=await shopRequest('session');if(!session.role){connectionError='';render();return;}}
-    const data=await shopRequest(isOwner()?'dashboard':'jobs'),changed=JSON.stringify(jobs)!==JSON.stringify(data.jobs)||JSON.stringify(devices)!==JSON.stringify(data.devices||[])||JSON.stringify(pendingOrders)!==JSON.stringify(data.pendingOrders||[]);
+    session=await shopRequest('session');
+    if(!session.role){jobs=[];devices=[];pendingOrders=[];loaded=false;render();return;}
+    const data=await shopRequest(isOwner()?'dashboard':'jobs',undefined,{force:true});
+    if(quiet&&(busy||$('#shop-dialog').open||document.hidden))return;
+    const changed=JSON.stringify(jobs)!==JSON.stringify(data.jobs)||JSON.stringify(devices)!==JSON.stringify(data.devices||[])||JSON.stringify(pendingOrders)!==JSON.stringify(data.pendingOrders||[]);
     jobs=data.jobs;devices=data.devices||[];pendingOrders=data.pendingOrders||[];offset=data.serverTime-Date.now();const hadError=!!connectionError;connectionError='';loaded=true;lastSync=Date.now();
+    if(isOwner()&&Date.now()-lastPreload>=30000){lastPreload=Date.now();void warmWorkspace();}
     const nextSchedule=jobs.map(j=>j.id+schedule(j,now()).label).join('|'),scheduleChanged=scheduleKey!==nextSchedule;scheduleKey=nextSchedule;
     if(changed||scheduleChanged||hadError||!quiet){await loadSelected();render();}
   }catch(error){if(error.status===401||error.status===403){session={...session,role:null,publicOwnerAccess:false};jobs=[];devices=[];pendingOrders=[];loaded=false;$('#shop-dialog').close();}connectionError=error.message;lastSync=Date.now();render();}
@@ -123,8 +128,12 @@ function bind(){
 }
 function updateClocks(){document.querySelectorAll('[data-elapsed]').forEach(el=>{const job=jobs.find(j=>j.id===el.dataset.elapsed);if(job)el.textContent=duration(elapsed(job,now()));});}
 installNavigationGuard({onRoute:()=>{selected=new URLSearchParams(location.search).get('job');filter=new URLSearchParams(location.search).get('filter')||sessionValue('production-filter:'+mode,'all');if(!['all','attention'].includes(filter))filter='all';heldSheet=null;detailError='';render();if(selected){scrollTo(0,0);loadSelected().then(render);}else restoreScroll('production:'+mode);}});
+window.addEventListener('shop-access-reset',()=>{session=null;jobs=[];devices=[];pendingOrders=[];heldSheet=null;loaded=false;$('#shop-dialog').close();render();});
+session=cachedShop('session')||null;
+const initial=session?.role?cachedShop(isOwner()?'dashboard':'jobs'):null;
+if(initial){jobs=initial.jobs;devices=initial.devices||[];pendingOrders=initial.pendingOrders||[];loaded=true;}
 render();
-try{session=await shopRequest('session');render();if(session.role)await refresh();}catch(error){connectionError=error.message;render();}
+try{session=await shopRequest('session');if(!initial)render();if(session.role)await refresh();void warmWorkspace();}catch(error){connectionError=error.message;render();}
 setInterval(()=>{updateClocks();if(session?.role&&!busy&&!$('#shop-dialog').open&&!document.hidden&&Date.now()-lastSync>5000)refresh({quiet:true});},1000);
 window.addEventListener('online',()=>refresh());
 window.addEventListener('offline',()=>{connectionError='You’re offline. Updates can’t be saved until this iPad reconnects.';render();});

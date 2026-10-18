@@ -1,11 +1,33 @@
 import {loadLogo} from './branding.js';
+import {cachedShop,shopRequest} from './shop-client.js';
 export const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const h=escapeHTML;
 export const destinations=[['home','Home','/'],['contacts','Contacts','/contacts.html#contacts'],['quotes','Quotes','/contacts.html#quotes'],['orders','Orders','/contacts.html#orders'],['cutsheets','Cut Sheets','/cutsheets.html'],['production','Production','/owner.html'],['settings','Settings','/settings.html']];
 export function workspaceNav(active,status='Shared workspace'){
  document.body.classList.add('owner-workspace');const logo=loadLogo();
- return `<a class="skip-link" href="#main-content">Skip to content</a><aside class="workspace-nav"><a class="workspace-brand" href="/" aria-label="Home">${logo?`<img src="${h(logo.data)}" alt="Company logo">`:'<span class="brand-symbol">▥</span> Cut Sheets'}</a><nav aria-label="Main navigation">${destinations.map(([key,label,url])=>`<a href="${url}" ${key===active?'class="selected" aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="workspace-nav-foot"><span id="save-state" role="status">${h(status)}</span></div></aside>`;
+ return `<a class="skip-link" href="#main-content">Skip to content</a><aside class="workspace-nav"><a class="workspace-brand" href="/" aria-label="Home">${logo?`<img src="${h(logo.data)}" alt="Company logo">`:'<span class="brand-symbol">▥</span> Cut Sheets'}</a><nav aria-label="Main navigation">${destinations.map(([key,label,url])=>`<a href="${url}" ${key===active?'class="selected" aria-current="page"':''}>${label}</a>`).join('')}</nav><div class="workspace-nav-foot"><span id="save-state" role="status">${h(status)}</span><span data-workspace-sync></span></div></aside>`;
 }
+// Fetch a likely next screen on hover or keyboard focus, without navigating or writing.
+const prefetchedPages=new Set();
+function preloadLink(event){
+ const a=event.target.closest?.('a[href]');if(!a||cachedShop('session')?.role!=='owner')return;
+ const url=new URL(a.href,location.href);if(url.origin!==location.origin)return;
+ let action,data;
+ if(url.pathname==='/contacts.html'){
+  const [kind,id]=url.hash.slice(1).split('?')[0].split('/');
+  if(['contact','quote','order'].includes(kind)&&id){action='sales-get';data={kind,id};}else action='sales';
+ }else if(url.pathname==='/cutsheets.html')action='workspace';
+ else if(['/owner.html','/shop.html'].includes(url.pathname))action='dashboard';
+ else if(url.pathname==='/editor.html'){
+  for(const kind of ['quote','order','draft'])if(url.searchParams.has(kind)){action=kind==='draft'?'draft-get':'sales-get';data={...(kind==='draft'?{}:{kind}),id:url.searchParams.get(kind)};break;}
+ }
+ if(action)void shopRequest(action,data).catch(()=>{});
+ if(['/','/contacts.html','/cutsheets.html','/owner.html','/settings.html','/editor.html'].includes(url.pathname)&&url.pathname!==location.pathname&&!prefetchedPages.has(url.pathname)){
+  prefetchedPages.add(url.pathname);const link=document.createElement('link');link.rel='prefetch';link.href=url.pathname;document.head.append(link);
+ }
+}
+globalThis.document?.addEventListener('pointerover',preloadLink,{passive:true});
+globalThis.document?.addEventListener('focusin',preloadLink);
 export function breadcrumbs(items=[]){return `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a>${items.map(([label,url])=>`<span aria-hidden="true">/</span>${url?`<a href="${h(url)}">${h(label)}</a>`:`<span aria-current="page">${h(label)}</span>`}`).join('')}</nav>`;}
 export function sessionValue(key,fallback=null){try{return JSON.parse(sessionStorage.getItem('workspace:'+key))??fallback;}catch{return fallback;}}
 export function remember(key,value){try{sessionStorage.setItem('workspace:'+key,JSON.stringify(value));}catch{}}

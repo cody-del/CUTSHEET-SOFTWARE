@@ -4,7 +4,8 @@ import {quoteBuilderURL} from './quote-product.js';
 import {PRODUCTS,productName,lineProduct,isManufacturingLine,hasManufacturingLines,manufacturingOpenings,quoteProductNames} from './products.js';
 import {contactAddressFields} from './contact-address.js';
 import {productionStages} from './shop-state.js';
-import {shopRequest} from './shop-client.js';
+import {shopRequest,cachedShop,warmWorkspace} from './shop-client.js';
+import {startWorkspaceSync,sameSnapshot} from './workspace-sync.js';
 import {loadLogo} from './branding.js';
 import {drawingSVG} from './layouts.js';
 import {frameStyle} from './frames.js';
@@ -38,7 +39,24 @@ function builderPage(){return '<p class="subheading">Opening quote builder…</p
 function openingCard(o,i,line,editable){
   if(!isManufacturingLine(o,detail.record))return `<article class="quote-line simple-quote-line"><div><span class="line-number">${String(i+1).padStart(2,'0')}</span><h3>${h(o.name)}</h3><p class="line-product-label">${h(productName(lineProduct(o,detail.record)))}</p><p>${o.width}″ W × ${o.height}″ H · ${o.quantity} unit${o.quantity===1?'':'s'}</p>${o.notes?`<p class="opening-details">${h(o.notes)}</p>`:''}${editable?`<div class="btn-row"><button class="btn" data-edit-opening="${h(o.id)}">Edit</button><button class="text-btn" data-remove-opening="${h(o.id)}">Remove</button></div>`:''}</div><div class="line-price"><strong>${money(line.lineTotal)}</strong><small>${line.billableArea.toFixed(2)} billable sq ft / unit<br>${money(line.unitPrice)} each${line.override?' · Custom price':''}</small></div></article>`;
 const config=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);return `<article class="quote-line"><div>${drawingSVG(o,{widthLabel:o.width+' in',heightLabel:o.height+' in',louverLayout:detail.previews?.[i]})}</div><div><span class="line-number">${String(i+1).padStart(2,'0')}</span><h3>${h(o.name)}</h3><p class="line-product-label">${h(productName(lineProduct(o,detail.record)))}</p><p>${o.width}″ W × ${o.height}″ H · ${o.quantity} unit${o.quantity===1?'':'s'}<br>${h(frameStyle(o).name)} · ${o.mount==='I'?'Inside':'Outside'} mount<br>${o.louver}″ louvers · ${h(o.tilt==='Smart'?'Smart View':o.tilt+' tilt')} · ${h(({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color])}<br>${h(config)}${o.divider?' · '+(o.divisionMode==='split'?'Split':'Divider')+' at '+o.divider+'″':''}</p></div><div class="line-price"><strong>${money(line.lineTotal)}</strong><small>${line.billableArea.toFixed(2)} billable sq ft / unit<br>${money(line.unitPrice)} each</small></div></article>`;}
-async function load(){const serial=++routeSerial;search=sessionValue('sales-search:'+route().kind,'');error='';detail=null;render();try{session=await shopRequest('session');if(serial!==routeSerial)return;if(session.role==='owner'){const next=await shopRequest('sales');if(serial!==routeSerial)return;const {kind,id}=route(),record=['contact','quote','order','builder'].includes(kind)?await shopRequest('sales-get',{kind:kind==='builder'?'quote':kind,id}):null;if(serial!==routeSerial)return;if(kind==='builder'){location.replace(record.record.status==='ordered'?'/contacts.html#quote/'+record.record.id:quoteBuilderURL(record.record));return;}all=next;detail=record;}if(serial!==routeSerial)return;dirty=false;confirmationId=crypto.randomUUID();initialPaymentId=crypto.randomUUID();}catch(e){if(serial!==routeSerial)return;error=e.message;}render();restoreScroll('sales:'+route().kind);if(location.hash.endsWith('?new=1')&&session?.role==='owner'){history.replaceState(history.state,'',location.pathname+'#quotes');createQuote();}}
+const canSync=()=>!busy&&!dirty&&!modalDirty&&!document.querySelector('dialog[open]')&&!document.activeElement?.matches('input,textarea,select');
+async function load({quiet=false,force=false}={}){
+ const serial=quiet?routeSerial:++routeSerial,{kind,id}=route(),query=['contact','quote','order','builder'].includes(kind)?{kind:kind==='builder'?'quote':kind,id}:null;
+ if(!quiet){search=sessionValue('sales-search:'+kind,'');error='';session=cachedShop('session')||session;all=cachedShop('sales')||all;detail=query?cachedShop('sales-get',query)||null:null;render();}
+ try{
+  const nextSession=await shopRequest('session',undefined,{force});if(serial!==routeSerial)return;
+  if(nextSession.role!=='owner'){session=nextSession;detail=null;render();return;}
+  const [next,record]=await Promise.all([shopRequest('sales',undefined,{force}),query?shopRequest('sales-get',query,{force}):null]);
+  if(serial!==routeSerial||quiet&&!canSync())return;
+  if(kind==='builder'){location.replace(record.record.status==='ordered'?'/contacts.html#quote/'+record.record.id:quoteBuilderURL(record.record));return;}
+  const changed=!sameSnapshot(all,next)||!sameSnapshot(detail,record)||!sameSnapshot(session,nextSession)||!!error;
+  session=nextSession;all=next;detail=record;error='';
+  if(!quiet){dirty=false;confirmationId=crypto.randomUUID();initialPaymentId=crypto.randomUUID();}
+  if(!quiet||changed)render();
+  if(!quiet){restoreScroll('sales:'+kind);void warmWorkspace();}
+ }catch(e){if(serial!==routeSerial)return;if(quiet)throw e;error=e.message;render();}
+ if(!quiet&&location.hash.endsWith('?new=1')&&session?.role==='owner'){history.replaceState(history.state,'',location.pathname+'#quotes');createQuote();}
+}
 function modal(title,body,footer=''){const d=$('#sales-dialog');d.innerHTML=`<div class="modal-heading"><h2>${h(title)}</h2><button class="icon-btn" aria-label="Close dialog" data-close>×</button></div><div class="modal-body">${body}<p id="modal-error" class="field-error" role="alert"></p></div><div class="modal-footer"><button class="btn" data-close>Cancel</button>${footer}</div>`;modalDirty=false;modalSave=null;d.querySelectorAll('[data-close]').forEach(el=>el.onclick=()=>guardedNavigation(()=>{modalDirty=false;d.close();}));d.oncancel=e=>{if(modalDirty){e.preventDefault();guardedNavigation(()=>{modalDirty=false;d.close();});}};d.showModal();d.querySelector('input')?.focus();}
 async function task(fn,target='#quote-error'){if(busy)return;busy=true;const lockedForms=[...document.querySelectorAll('form')];lockedForms.forEach(f=>f.inert=true);document.querySelectorAll('button[type="submit"],#quote-form button,.quote-summary button').forEach(b=>b.disabled=true);try{await fn();}catch(e){const el=$(target);if(el)el.textContent=e.message;else{let box=$('#action-error');if(!box){box=document.createElement('div');box.id='action-error';box.className='error-box';box.setAttribute('role','alert');$('.sales-content').prepend(box);}box.textContent=e.message;box.scrollIntoView({block:'nearest'});}}finally{busy=false;lockedForms.forEach(f=>f.inert=false);document.querySelectorAll('button:disabled').forEach(b=>b.disabled=false);}}
 function contactForm(edit=false){
@@ -96,5 +114,7 @@ async function persistForm(){
  dirty=false;
 }
 document.addEventListener('click',e=>{const a=e.target.closest('a');if(!a)return;keepScroll('sales:'+route().kind);if(a.dataset.record)rememberReturn(a.dataset.record,location.pathname+location.hash,route().kind==='contact'?name(detail.contact):route().kind==='orders'?'Orders':'Quotes');},true);
+window.addEventListener('shop-access-reset',()=>{session=null;all={contacts:[],quotes:[],orders:[],pricing:{}};detail=null;$('#sales-dialog').close();render();});
 installNavigationGuard({isDirty:()=>dirty||modalDirty,save:persistForm,discard:()=>{dirty=false;modalDirty=false;},onRoute:load});
 await load();
+startWorkspaceSync(async()=>{await load({quiet:true,force:true});void warmWorkspace();},{canRefresh:canSync,connected:!!session&&!error});
