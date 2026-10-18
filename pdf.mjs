@@ -42,7 +42,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const {gap,cw,size,rows}=factsLayout(items,options),start=y;
     for(const {group,height}of rows){
       ensure(height+gap,'Machining continued');
-      group.forEach((cell,col)=>{const xx=x+col*(cw+gap);rect(xx,y-height,cw,height,col%2===0?pale:white,true);let yy=y-10;const keyDatum=cell.label.join(' ')==='First louver hole from top';cell.label.forEach(l=>{text(l,xx+7,yy,7,keyDatum?bold:regular,keyDatum?ink:muted);yy-=8;});cell.value.forEach(l=>{text(l,xx+7,yy,size,bold);yy-=size+2;});});
+      group.forEach((cell,col)=>{const xx=x+col*(cw+gap);rect(xx,y-height,cw,height,col%2===0?pale:white,true);let yy=y-10;const keyDatum=cell.label.join(' ')==='Whole distance';cell.label.forEach(l=>{text(l,xx+7,yy,7,keyDatum?bold:regular,keyDatum?ink:muted);yy-=8;});cell.value.forEach(l=>{text(l,xx+7,yy,size,bold);yy-=size+2;});});
       y-=height+gap;
     }
     return start-y;
@@ -158,7 +158,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const firstHole=firstLouverHole(result),summary=cutSheetFacts(o,result,{length,units}),top=y;
     // Keep the drilling datum next to quantity without adding height to a
     // densely populated T-post page. Preserve the input basis with dimensions.
-    facts([summary[1],['First louver hole from top',firstHole===null?'Not available':length(firstHole)+' '+units],
+    facts([summary[1],['Whole distance',firstHole===null?'Not available':length(firstHole)+' '+units],
       [`${summary[0][0]} · ${summary[6][1]}`,summary[0][1]],...summary.slice(2,6),summary[7]],
       {w:350,compact:true,dense:result.parts.length>12});
     schematic(o,result,397,top,183,Math.min(130,top-y-15));

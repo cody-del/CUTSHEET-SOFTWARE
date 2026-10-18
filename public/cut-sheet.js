@@ -34,4 +34,4 @@ export function cutSheetNotes(result){
   if(aluminum.length)notes.unshift(`Aluminum inserts: confirm cut lengths for section${aluminum.length===1?'':'s'} ${aluminum.join(', ')}.`);
   return notes;
 }
-export const machiningLabel=label=>label==='First louver hole from stile top'?'First louver hole from top':label===label.toUpperCase()?label.toLowerCase().replace(/^./,c=>c.toUpperCase()):label;
+export const machiningLabel=label=>label==='First louver hole from stile top'?'Whole distance':label===label.toUpperCase()?label.toLowerCase().replace(/^./,c=>c.toUpperCase()):label;
