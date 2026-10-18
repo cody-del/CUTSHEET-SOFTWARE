@@ -6,13 +6,29 @@ export const productionStages=[
   {key:'complete',label:'Complete'}
 ];
 export const finishingStages=productionStages.slice(2,-1);
-export const stageStatus=(job,key)=>job.production?.[key]?.status||'not-started';
+export const productionChecks=[
+  {key:'louvers-capped',label:'Louvers capped',stage:'capping'},
+  {key:'stiles-capped',label:'Stiles capped',stage:'capping'},
+  {key:'boring',label:'Stiles & rails bored',stage:'boring'},
+  {key:'building',label:'Panels built & pressed',stage:'building'},
+  {key:'hinging',label:'Hinged / complete',stage:'hinging'}
+];
+// Older jobs recorded one Capping check. Preserve that work until a worker
+// explicitly updates either of the new independent checks.
+export const checkStatus=(job,key)=>job.production?.[key]?.status||
+  (['louvers-capped','stiles-capped'].includes(key)?job.production?.capping?.status:null)||'not-started';
+export function stageStatus(job,key){
+  if(key!=='capping')return checkStatus(job,key);
+  const statuses=['louvers-capped','stiles-capped'].map(key=>checkStatus(job,key));
+  return statuses.every(s=>s==='complete')?'complete':statuses.some(s=>s!=='not-started')?'partial':'not-started';
+}
 export function production(job) {
   if(!job)return productionStages[0];
   const p=progress(job);
   if(!p.complete){
     const started=job.cuttingStartedAt||job.startedAt||job.elapsedMs||job.completedAt||
-      job.openings.some(o=>o.lines.some(l=>l.status==='partial'||l.completed>0));
+      job.openings.some(o=>o.lines.some(l=>l.status==='partial'||l.completed>0))||
+      productionChecks.some(check=>checkStatus(job,check.key)!=='not-started');
     return productionStages[started?1:0];
   }
   return finishingStages.find(stage=>stageStatus(job,stage.key)!=='complete')||productionStages.at(-1);

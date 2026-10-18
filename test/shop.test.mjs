@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileStore} from '../shop-store.mjs';
 import {createShopService} from '../shop-service.mjs';
 import {shopHandler} from '../shop-api.mjs';
-import {progress,elapsed,schedule,duration,production,finishingStages,stageStatus} from '../public/shop-state.js';
+import {progress,elapsed,schedule,duration,production,productionChecks,checkStatus,stageStatus} from '../public/shop-state.js';
 import {calculate} from '../calculations.mjs';
 
 const opening={id:'opening-1',name:'Front window',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
@@ -199,27 +199,25 @@ test('invalid deadlines are validation errors and expired pairing codes cannot c
   assert.equal((await f.service.run('pair',{code})).status,401);
 });
 
-test('shop jobs advance through every production stage only after all required work is complete',async t=>{
+test('shop jobs advance through every production stage with separate manual cap checks',async t=>{
   const f=await fixture(t,{local:false}),owner=await ownerCookie(f.service),shop=await paired(f.service,owner);
   let {job:j}=await f.service.run('publish',{job:{...job,openings:[opening,{...opening,id:'opening-2',name:'Second window'}]}},owner);
   assert.equal(production(j).key,'waiting');
-  await assert.rejects(f.service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'complete'},shop),/every cut line/);
   ({job:j}=await f.service.run('timer',{id:j.id,version:j.version,action:'start'},shop));
   ({job:j}=await f.service.run('timer',{id:j.id,version:j.version,action:'pause'},shop));
-  assert.equal(production(j).key,'cutting'); // Pausing at zero elapsed time must not send it back to Waiting.
+  assert.equal(production(j).key,'cutting');
   for(const line of j.openings[0].lines)({job:j}=await f.service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'},shop));
   assert.equal(production(j).key,'cutting'); // Every opening counts.
-  const lastLines=j.openings[1].lines;
-  for(const line of lastLines)({job:j}=await f.service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'},shop));
+  for(const line of j.openings[1].lines)({job:j}=await f.service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'},shop));
   assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
-  await assert.rejects(f.service.run('stage',{id:j.id,version:j.version,stage:'building',status:'complete'},shop),/preceding/);
-  for(const [index,stage] of finishingStages.entries()){
-    ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'partial'},shop));
-    assert.equal(production(j).key,stage.key);assert.equal(stageStatus(j,stage.key),'partial');
+  assert.equal(checkStatus(j,'louvers-capped'),'not-started'); // Cutting never marks capping automatically.
+  for(const [index,check] of productionChecks.entries()){
+    ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:check.key,status:'partial'},shop));
+    assert.equal(production(j).key,check.stage);assert.equal(checkStatus(j,check.key),'partial');
     f.advance(60000);
-    ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'complete'},shop));
-    assert.equal(production(j).key,finishingStages[index+1]?.key||'complete');
-    assert.equal(j.production[stage.key].by,'Saw iPad');assert.equal(j.production[stage.key].completedAt,f.time());
+    ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:check.key,status:'complete'},shop));
+    assert.equal(production(j).key,productionChecks[index+1]?.stage||'complete');
+    assert.equal(j.production[check.key].by,'Saw iPad');assert.equal(j.production[check.key].completedAt,f.time());
   }
   assert.equal(j.productionCompletedAt,f.time());
   const second=createShopService({store:fileStore(f.path),password,secret,now:f.time});
@@ -229,26 +227,63 @@ test('shop jobs advance through every production stage only after all required w
   await assert.rejects(second.run('stage',{id:j.id,version:j.version,stage:'hinging',status:'complete'}),e=>e.status===401);
 });
 
-test('production corrections require confirmation, invalidate later checks and reject stale updates',async t=>{
-  const {service}=await fixture(t);let {job:j}=await service.run('publish',{job});
+test('parallel finishing and further partial cuts preserve recorded work without skipping unfinished stages',async t=>{
+  const f=await fixture(t,{local:false}),owner=await ownerCookie(f.service),shop=await paired(f.service,owner);
+  let {job:j}=await f.service.run('publish',{job},owner);
+  const run=async(op,data)=>{({job:j}=await f.service.run(op,{id:j.id,version:j.version,...data},shop));};
   const lineId=j.openings[0].lines[0].id;
-  ({job:j}=await service.run('line',{id:j.id,version:j.version,lineId,status:'partial',completed:0,outOfMaterial:true}));
-  assert.equal(production(j).key,'cutting');
-  for(const line of j.openings[0].lines)({job:j}=await service.run('line',{id:j.id,version:j.version,lineId:line.id,status:'cut'}));
-  for(const stage of finishingStages)({job:j}=await service.run('stage',{id:j.id,version:j.version,stage:stage.key,status:'complete'}));
-  await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'partial'}),/Confirm/);
-  const previousVersion=j.version;
-  ({job:j}=await service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'partial',resetFollowing:true}));
+  await run('line',{lineId,status:'partial',completed:3,outOfMaterial:false});
+  await run('stage',{stage:'louvers-capped',status:'partial'});
+  await run('stage',{stage:'boring',status:'complete'});
+  await run('stage',{stage:'stiles-capped',status:'complete'});
+  assert.equal(stageStatus(j,'capping'),'partial');assert.equal(production(j).key,'cutting');
+  await run('line',{lineId,status:'partial',completed:5,outOfMaterial:true,note:'Need stock'});
+  assert.equal(checkStatus(j,'louvers-capped'),'partial');assert.equal(checkStatus(j,'boring'),'complete');
+  assert.equal(checkStatus(j,'stiles-capped'),'complete');assert.equal(progress(j).alerts.length,1);
+  for(const line of j.openings[0].lines)await run('line',{lineId:line.id,status:'cut'});
   assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
-  for(const key of ['boring','building','hinging'])assert.equal(stageStatus(j,key),'not-started');
-  await assert.rejects(service.run('stage',{id:j.id,version:previousVersion,stage:'capping',status:'complete'}),e=>e.status===409);
+  await run('stage',{stage:'louvers-capped',status:'complete'});
+  assert.equal(production(j).key,'building'); // Boring was already recorded by the worker.
+  await run('stage',{stage:'hinging',status:'complete'});
+  assert.equal(production(j).key,'building');assert.equal(j.productionCompletedAt,null);
+  await run('stage',{stage:'building',status:'complete'});
+  assert.equal(production(j).key,'complete');assert.equal(j.productionCompletedAt,f.time());
+  const second=createShopService({store:fileStore(f.path),password,secret,now:f.time});
+  assert.deepEqual((await second.run('job-get',{id:j.id},shop)).job.production,j.production);
+});
+
+test('independent corrections retain other checks, recalculate completion, and reject stale updates',async t=>{
+  const f=await fixture(t),{service}=f;let {job:j}=await service.run('publish',{job});
+  const run=async(op,data)=>{({job:j}=await service.run(op,{id:j.id,version:j.version,...data}));};
+  for(const check of productionChecks)await run('stage',{stage:check.key,status:'complete'});
+  assert.equal(production(j).key,'cutting');assert.equal(j.productionCompletedAt,null);
+  f.advance(60000);
+  for(const line of j.openings[0].lines)await run('line',{lineId:line.id,status:'cut'});
+  assert.equal(production(j).key,'complete');assert.equal(j.productionCompletedAt,f.time());
+  const previousVersion=j.version,otherChecks=structuredClone(j.production);
+  await run('stage',{stage:'louvers-capped',status:'partial'});
+  assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
+  for(const check of productionChecks.slice(1))assert.deepEqual(j.production[check.key],otherChecks[check.key]);
+  await assert.rejects(service.run('stage',{id:j.id,version:previousVersion,stage:'louvers-capped',status:'complete'}),e=>e.status===409);
   await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'__proto__',status:'complete'}),e=>e.status===400);
-  await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'bogus'}),e=>e.status===400);
-  await assert.rejects(service.run('line',{id:j.id,version:j.version,lineId,status:'not-cut'}),/Confirm/);
-  ({job:j}=await service.run('line',{id:j.id,version:j.version,lineId,status:'not-cut',resetFollowing:true}));
-  assert.equal(production(j).key,'cutting');assert.deepEqual(j.production,{});
-  ({job:j}=await service.run('line',{id:j.id,version:j.version,lineId,status:'cut'}));
-  assert.equal(production(j).key,'capping');assert.equal(j.productionCompletedAt,null);
+  await assert.rejects(service.run('stage',{id:j.id,version:j.version,stage:'louvers-capped',status:'bogus'}),e=>e.status===400);
+  await run('stage',{stage:'louvers-capped',status:'complete'});
+  const finishing=structuredClone(j.production),lineId=j.openings[0].lines[0].id;
+  await run('line',{lineId,status:'not-cut'});
+  assert.equal(production(j).key,'cutting');assert.deepEqual(j.production,finishing);assert.equal(j.productionCompletedAt,null);
+  f.advance(60000);await run('line',{lineId,status:'cut'});
+  assert.equal(production(j).key,'complete');assert.equal(j.productionCompletedAt,f.time());
+});
+
+test('existing combined Capping records and older tabs retain their completed work',async t=>{
+  const f=await fixture(t);let {job:j}=await f.service.run('publish',{job});
+  await fileStore(f.path).transaction(state=>{state.jobs[j.id].production={capping:{status:'complete',completedAt:12345,by:'Original iPad'}};});
+  ({job:j}=await f.service.run('job-get',{id:j.id}));
+  assert.equal(checkStatus(j,'louvers-capped'),'complete');assert.equal(checkStatus(j,'stiles-capped'),'complete');
+  ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:'louvers-capped',status:'not-started'}));
+  assert.equal(checkStatus(j,'louvers-capped'),'not-started');assert.equal(checkStatus(j,'stiles-capped'),'complete');assert.equal(stageStatus(j,'capping'),'partial');
+  ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'complete'}));
+  assert.equal(stageStatus(j,'capping'),'complete');assert.equal(j.production.capping,undefined);
 });
 
 test('existing cut sheets enter Capping without assuming finishing work was completed',()=>{

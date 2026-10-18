@@ -3,7 +3,7 @@ import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
 import {salesOperations,runSales,orderJob} from './sales-service.mjs';
-import {progress,production,finishingStages,stageStatus} from './public/shop-state.js';
+import {progress,production,productionChecks,checkStatus} from './public/shop-state.js';
 import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -114,19 +114,17 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         const job=jobFor(state,data);
         if(operation==='plan'){Object.assign(job,plan(data));audit(job,a,'Updated cutting estimate and target date',time);return {job};}
         if(operation==='stage'){
-          const index=finishingStages.findIndex(stage=>stage.key===data.stage),stage=finishingStages[index];
+          // Keep the former combined Capping action compatible with older tabs.
+          const stage=data.stage==='capping'?{key:'capping',label:'Capping'}:productionChecks.find(check=>check.key===data.stage);
           if(!stage||!['not-started','partial','complete'].includes(data.status))fail(400,'Choose a valid production stage and status.');
-          if(!progress(job).complete)fail(409,'Finish every cut line before starting Capping.');
-          if(finishingStages.slice(0,index).some(s=>stageStatus(job,s.key)!=='complete'))fail(409,'Complete the preceding production stages first.');
-          const previous=stageStatus(job,stage.key);
-          if(previous===data.status)return {job};
-          const following=finishingStages.slice(index+1),reset=following.some(s=>stageStatus(job,s.key)!=='not-started');
-          if(data.status!=='complete'&&reset&&data.resetFollowing!==true)fail(409,'Reopening this stage also clears later production checks. Confirm the correction first.');
+          const keys=stage.key==='capping'?['louvers-capped','stiles-capped']:[stage.key];
+          if(keys.every(key=>checkStatus(job,key)===data.status))return {job};
           job.production??={};
-          if(data.status!=='complete')for(const s of following)delete job.production[s.key];
-          job.production[stage.key]={status:data.status,updatedAt:time,completedAt:data.status==='complete'?time:null,by:a.name};
-          job.productionCompletedAt=production(job).key==='complete'?time:null;
-          audit(job,a,`${stage.label}: ${data.status==='complete'?'complete':data.status==='partial'?'partial':'not started'}${data.status!=='complete'&&reset?' · later production checks cleared':''} · ${production(job).label}`,time);
+          for(const key of keys)job.production[key]={status:data.status,updatedAt:time,completedAt:data.status==='complete'?time:null,by:a.name};
+          if(stage.key==='capping')delete job.production.capping;
+          if(data.status!=='not-started')job.cuttingStartedAt??=time;
+          job.productionCompletedAt=production(job).key==='complete'?(job.productionCompletedAt||time):null;
+          audit(job,a,`${stage.label}: ${data.status==='complete'?'complete':data.status==='partial'?'partial':'not started'} · ${production(job).label}`,time);
           return {job};
         }
         if(operation==='timer'){
@@ -156,9 +154,6 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           let completed=data.status==='cut'?line.quantity:data.status==='not-cut'?0:Number(data.completed);
           if(!Number.isInteger(completed)||completed<0||completed>line.quantity||(data.status==='partial'&&completed===line.quantity))fail(400,'Enter a completed quantity below the total for a partial cut.');
           if(data.status==='partial'&&typeof data.outOfMaterial!=='boolean')fail(400,'Please answer whether you are out of material.');
-          const reset=completed<line.quantity&&finishingStages.some(s=>stageStatus(job,s.key)!=='not-started');
-          if(reset&&data.resetFollowing!==true)fail(409,'Correcting this cut clears the later production checks. Confirm the correction first.');
-          if(reset)job.production={};
           if(data.status!=='not-cut'||line.completed>0||line.status==='partial')job.cuttingStartedAt??=time;
           if(completed<line.quantity)job.productionCompletedAt=null;
           line.status=data.status;line.completed=completed;
@@ -168,7 +163,8 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           }else if(line.shortage&&data.status==='cut'){line.shortage.status='resolved';line.shortage.updatedAt=time;}
           job.completedAt=null;
           if(progress(job).complete){stop(job,time);job.completedAt=time;}
-          audit(job,a,`${line.name}${line.section?' · section '+line.section:''}: ${completed}/${line.quantity} cut${data.outOfMaterial?' · out of material (timer paused)':''}${reset?' · later production checks cleared':''}${progress(job).complete?' · ready for Capping':''}`,time);
+          job.productionCompletedAt=production(job).key==='complete'?(job.productionCompletedAt||time):null;
+          audit(job,a,`${line.name}${line.section?' · section '+line.section:''}: ${completed}/${line.quantity} cut${data.outOfMaterial?' · out of material (timer paused)':''}${progress(job).complete?' · '+production(job).label:''}`,time);
           return {job};
         }
         fail(404,'Unknown shop action.');
