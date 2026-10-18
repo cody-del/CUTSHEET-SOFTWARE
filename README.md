@@ -116,7 +116,7 @@ The local preview skips codes and passwords on this computer. Demonstration cont
 
 ## Owner workspace navigation
 
-`/` is Home. Every owner screen uses the same menu: Home, Contacts, Quotes, Orders, Cut Sheets, Production, Settings. Pricing and shop-device setup live under Settings. Shop Floor remains a focused employee view, with a workspace exit for owners.
+`/` is Home. Every owner screen uses the same menu: Home, Contacts, Quotes, Orders, Cut Sheets, Production, Settings. Pricing and shop-device setup live under Settings. Production opens the same job board and digital cutting checklists for owners and paired employees; only owners see workspace navigation and management controls.
 
 `/editor.html?quote=ID` builds quote lines; `?order=ID` previews an accepted order's ShutterSmart cut sheets; `?draft=ID` edits a shared standalone draft; `?job=ID` previews a legacy released shop job. Existing root `/?quote=ID` and `/?order=ID` links redirect to the editor. `/cutsheets.html` starts at the shared list rather than automatically opening a browser job.
 
@@ -126,7 +126,7 @@ App navigation prompts Save and leave, Discard changes, or Stay here for unsaved
 
 ## Digital shop floor and Production
 
-Open `/owner.html` for production progress and `/shop.html` for the iPad cut sheets. From a saved draft or accepted order, **Release to shop** publishes a fixed, server-calculated copy. Released drafts are locked. Repeating a draft/order release returns the existing job; the legacy publish endpoint rejects duplicates; revision/re-release management is not included yet. Material shortages are dashboard alerts, not email or push notifications.
+Open `/owner.html` for the Production board, then open a job for its digital cut sheet. `/shop.html` remains a compatible iPad connection entry and shows the same board and checklist after connection. From a saved draft or accepted order, **Release to shop** publishes a fixed, server-calculated copy. Released drafts are locked. Repeating a draft/order release returns the existing job; the legacy publish endpoint rejects duplicates; revision/re-release management is not included yet. Material shortages are dashboard alerts, not email or push notifications.
 
 The owner board follows **Waiting → Cutting → Capping → Boring → Building → Hinging → Complete**. A converted order appears in Waiting immediately, with an **Open order** link until its cut sheet is sent to the shop. Unreleased orders remain outside the employee job list. Released jobs enter Cutting when the cutting timer starts or any line is marked partially/fully cut. Pausing keeps the job in Cutting. Every piece on every opening must be cut before it moves automatically to Capping.
 
@@ -165,8 +165,8 @@ The PostgreSQL deployment needs a real site/database connection and a cross-devi
 
 Converting a quote opens **Pricing & payment**. The owner confirms the final sale total (including tax) and records any amount already received, including zero. Home and Orders show confirmed sales, received payments, and outstanding balances. Legacy orders remain marked **Needs pricing** until confirmed; no payment history is inferred. Additional receipts use integer cents, optimistic versions, and retry-safe IDs. Voiding an incorrect entry retains its reason and timestamp; the app does not process charges or refunds.
 
-Confirmation automatically releases valid ShutterSmart lines to the shop, including the ShutterSmart subset of a mixed order. Other products remain on the sales order. Calculation warnings retain the financial record but hold cutting; pending cards remain visible in Production and Shop Floor without exposing financial or contact fields to paired employees. Before release, **Review measurements** allows correcting a separate manufacturing copy; the sold quote, quantity, and commercial price stay unchanged. Corrected specifications are locked once released.
+Confirmation automatically releases valid ShutterSmart lines to the shop, including the ShutterSmart subset of a mixed order. Other products remain on the sales order. Calculation warnings retain the financial record but hold cutting; pending cards remain visible in Production without exposing financial or contact fields to paired employees. Before release, **Review measurements** allows correcting a separate manufacturing copy; the sold quote, quantity, and commercial price stay unchanged. Corrected specifications are locked once released.
 
-**Production** is one navigation destination with **Overview** for the owner board and **Shop Floor** for employee checklists. Both use the same jobs. Paired employees keep their shop-only interface.
+**Production** has one board and no Overview/Shop Floor tabs. Every card opens a digital cut sheet with per-part counts (for example, 0 of 20 cut), Not cut / Partially cut / Fully cut controls, and ordered finishing checks. Measurements and machining notes expand on demand; the cutting checklist stays visible. Completing all lines unlocks Capping, followed by Boring, Building, Hinging, and Complete. Download print PDF is a separate action on a released sheet. Held orders open the same sheet read-only with the reason and owner correction link. The job-get and job-pdf routes require an existing owner or paired-shop session; held previews cannot mutate shop progress or generate production PDFs, and contain no commercial/contact records.
 
 For isolated UI verification, run `PORT=4191 WORKSHOP_DATA_FILE=/private/tmp/cutsheet-test.json npm start` with a new temporary file. This keeps synthetic payment/order tests separate from `.data/workshop.json` and live Supabase.

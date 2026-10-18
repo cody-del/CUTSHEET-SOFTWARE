@@ -10,7 +10,7 @@ const cookieNames={owner:'cutsheet_owner',shop:'cutsheet_shop'};
 export function shopHandler(service) {
   return async request=>{
     const url=new URL(request.url),operation=url.pathname.split('/').pop();
-    if(![...salesOperations,...workspaceOperations,'sales-document','order-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
+    if(![...salesOperations,...workspaceOperations,'sales-document','order-pdf','job-get','job-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
     const read=['workspace','sales','session','jobs','dashboard'].includes(operation);
     if(request.method!==(read?'GET':'POST'))return json(405,{error:read?'GET required.':'POST required.'});
     if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});
@@ -32,6 +32,13 @@ export function shopHandler(service) {
       // Only trust Netlify's overwritten client-IP header in hosted functions.
       data.client=request.headers.get('x-nf-client-connection-ip')||'local';
       const cookie={owner:cookies.cutsheet_owner,shop:cookies.cutsheet_shop};
+      if(operation==='job-pdf'){
+        if(data.units!==undefined&&!['mm','in'].includes(data.units))return json(400,{error:'Choose inches or millimeters.'});
+        const {job}=await service.run('job-get',{id:data.id},cookie);
+        if(job.held)return json(422,{error:'This order needs owner review before a cutting PDF can be printed.'});
+        const pdf=await createPDF({id:job.id,productId:'shuttersmart',name:job.name,number:job.number,customer:'',notes:job.notes,openings:job.openings.map(o=>o.input)},{units:data.units||'mm'});
+        return new Response(pdf,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="cut-sheets.pdf"','Cache-Control':'no-store'}});
+      }
       if(operation==='sales-document'||operation==='order-pdf'){
         if(operation==='order-pdf'&&data.units!==undefined&&!['mm','in'].includes(data.units))return json(400,{error:'Choose inches or millimeters.'});
         const record=await service.run('sales-get',{kind:operation==='order-pdf'?'order':data.kind,id:data.id},cookie);

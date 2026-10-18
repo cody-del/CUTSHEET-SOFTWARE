@@ -1,4 +1,4 @@
-import {waitingShopOrders} from './order-manufacturing.mjs';
+import {waitingShopOrders,heldOrderSheet} from './order-manufacturing.mjs';
 import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
@@ -98,6 +98,11 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
+        }
+        if(operation==='job-get'){
+          const id=identifier(data.id);if(state.jobs[id])return {job:state.jobs[id]};
+          const order=state.orders?.[id];if(!order||!hasManufacturingLines(order))fail(404,'This digital cut sheet was not found.');
+          return {job:heldOrderSheet(order)};
         }
         if(operation==='pairing'){
           const name=text(data.name,'iPad name',60),code=randomBytes(8).toString('hex').toUpperCase();

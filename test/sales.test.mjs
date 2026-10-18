@@ -345,3 +345,35 @@ test('nonmanufacturing orders track sales and full payment without creating shop
  const {order}=await f.run('quote-convert',{id:q.id,version:q.version}),r=await f.run('order-confirm',confirmation(order,45025,45025));
  assert.equal(r.released,false);assert.equal(r.readiness.status,'not-applicable');assert.equal(r.financials.paymentStatus,'Paid');assert.equal((await f.run('jobs')).jobs.length,0);assert.deepEqual((await f.run('sales')).financials,{soldCents:45025,receivedCents:45025,balanceCents:0,needsPricing:0});
 });
+
+test('pending digital cut sheets expose only manufacturing data and cannot save production progress',async t=>{
+ const f=await fixture(t),q=await quote(f,{items:[{...opening,height:60}]}),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ const {code}=await f.run('pairing',{name:'Cutting iPad'}),shop={shop:(await f.service.run('pair',{code})).token};
+ await assert.rejects(f.service.run('job-get',{id:order.id}),e=>e.status===401);
+ const {job:preview}=await f.service.run('job-get',{id:order.id},shop);
+ assert.equal(preview.held,true);assert.equal(preview.readiness.status,'blocked');assert.equal(preview.openings[0].lines[0].completed,0);
+ assert.equal(preview.openings[0].lines[0].quantity,calculate({...opening,height:60}).parts[0].quantity);
+ for(const word of ['finance','customer','pricing','unitPrices','installationCents','PRIVATE',contact.email])assert.ok(!JSON.stringify(preview).includes(word),word);
+ for(const operation of ['line','timer','stage'])await assert.rejects(f.service.run(operation,{id:preview.id,version:preview.version,lineId:preview.openings[0].lines[0].id,status:'cut',action:'start',stage:'capping'},shop),e=>e.status===404);
+ const handler=shopHandler(f.service),request=op=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_shop='+shop.shop},body:JSON.stringify({id:order.id})});
+ assert.equal((await handler(request('job-get'))).status,200);assert.equal((await handler(request('job-pdf'))).status,422);
+ assert.equal((await f.run('jobs')).jobs.length,0);assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).record.version,order.version);
+ await assert.rejects(f.service.run('job-get',{id:q.id},shop),e=>e.status===404);
+ await assert.rejects(f.service.run('job-get',{id:'__proto__'},shop),e=>e.status===400);
+});
+
+test('digital sheet switches from held preview to released progress and paired workers can print the same cuts',async t=>{
+ const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ assert.equal((await f.run('job-get',{id:order.id})).job.held,true);
+ const {code}=await f.run('pairing',{name:'Cutting iPad'}),shop={shop:(await f.service.run('pair',{code})).token};
+ await f.run('order-confirm',confirmation(order));
+ let {job}=await f.service.run('job-get',{id:order.id},shop);assert.equal(job.held,undefined);
+ ({job}=await f.service.run('line',{id:job.id,version:job.version,lineId:job.openings[0].lines[0].id,status:'partial',completed:4,outOfMaterial:false},shop));
+ assert.equal((await f.run('job-get',{id:order.id})).job.openings[0].lines[0].completed,4);
+ const handler=shopHandler(f.service),request=(cookie,units='mm')=>new Request('https://example.com/api/shop/job-pdf',{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({id:order.id,units,openings:[{...opening,width:1}]})});
+ assert.equal((await handler(request(''))).status,401);
+ assert.equal((await handler(request('cutsheet_shop='+shop.shop,'bogus'))).status,400);
+ const response=await handler(request('cutsheet_shop='+shop.shop));assert.equal(response.status,200);
+ const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);assert.equal(pdf.getPage(0).getWidth(),612);
+ assert.deepEqual((await f.run('job-get',{id:order.id})).job.openings[0].input,opening);
+});
