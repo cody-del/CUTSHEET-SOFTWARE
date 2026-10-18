@@ -1,3 +1,5 @@
+import {orderFinancials,salesFinancials} from './public/order-finance.js';
+import {orderReadiness,orderManufacturingOpenings} from './order-manufacturing.mjs';
 import {quotePricing} from './public/quote-pricing.js';
 import {PRODUCTS,productId,productFor,productName,lineProduct,isManufacturingLine,manufacturingOpenings,hasManufacturingLines,quoteProductNames,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {randomUUID} from 'node:crypto';
@@ -5,7 +7,7 @@ import {calculate} from './calculations.mjs';
 import {production} from './public/shop-state.js';
 import {formatContactAddress} from './public/contact-address.js';
 
-export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release'];
+export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
 const fail=(status,message)=>{throw new SalesError(status,message);};
 const identifier=value=>{if(typeof value!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(value)||['__proto__','constructor','prototype'].includes(value))fail(400,'Invalid record identifier.');return value;};
@@ -67,7 +69,7 @@ export async function runSales(state,operation,data,time,publish){
   state.productPricing??={};
   const pricingFor=record=>productId(record)==='other'?{rateCents:null,minimumAreaHundredths:0,version:0}:supportsCutSheets(record)?state.pricing:state.productPricing[requireProduct(record).id]||{rateCents:null,minimumAreaHundredths:0,version:0};
   const touch=r=>{r.version++;r.updatedAt=time;return r;};
-  const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:hasManufacturingLines(q)?production(state.jobs[q.id]).key:null});
+  const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:hasManufacturingLines(q)?production(state.jobs[q.id]).key:null,financials:orderFinancials(q,quoteTotals(q).total),readiness:orderReadiness(q,!!state.jobs[q.id])});
   if(operation==='pricing-save'){
     const product=requireProduct(data),previous=pricingFor(data);if(product.id==='other')fail(400,'Set a unit price on each line for other brands.');current(previous,data.version);
     const rateCents=amount(data.rateCents,'price per square foot',1000000);if(!rateCents)fail(400,'Enter a price greater than zero.');
@@ -75,13 +77,13 @@ export async function runSales(state,operation,data,time,publish){
     if(supportsCutSheets(data))state.pricing=pricing;else state.productPricing[product.id]=pricing;
     return {productId:product.id,pricing};
   }
-  if(operation==='sales')return {pricing:state.pricing,productPricing:Object.fromEntries(PRODUCTS.map(product=>[product.id,pricingFor({productId:product.id})])),contacts:Object.values(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:Object.values(state.quotes).map(summary),orders:Object.values(state.orders).map(orderSummary)};
+  if(operation==='sales'){const orders=Object.values(state.orders).map(orderSummary);return {financials:salesFinancials(orders),pricing:state.pricing,productPricing:Object.fromEntries(PRODUCTS.map(product=>[product.id,pricingFor({productId:product.id})])),contacts:Object.values(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:Object.values(state.quotes).map(summary),orders};}
   if(operation==='sales-get'){
     if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:Object.values(state.quotes).filter(q=>q.contactId===contact.id).map(summary),orders:Object.values(state.orders).filter(q=>q.contactId===contact.id).map(orderSummary)};}
     if(!['quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const record=get(data.kind==='quote'?state.quotes:state.orders,data.id);
     requireProduct(record);
-    return {record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null}:{})};
+    return {record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
   }
   if(operation==='contact-save'){
     const id=identifier(data.id),previous=state.contacts[id];if(previous)current(previous,data.version);else if(data.version!==0)fail(409,'This contact no longer exists.');
@@ -142,6 +144,53 @@ export async function runSales(state,operation,data,time,publish){
     const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:'O-'+String(++state.salesCounters.order).padStart(4,'0'),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId)),createdAt:time,updatedAt:time,version:1};
     state.orders[id]=order;quote.status='ordered';quote.orderId=id;touch(quote);return {order};
   }
+  const orderResult=order=>({order,financials:orderFinancials(order,quoteTotals(order).total),released:!!state.jobs[order.id],readiness:orderReadiness(order,!!state.jobs[order.id]),releaseIssue:order.releaseIssue||''});
+  async function sendConfirmedOrder(order){
+    if(!hasManufacturingLines(order)||state.jobs[order.id])return;
+    const ready=orderReadiness(order);if(ready.status==='blocked'){order.releaseIssue=ready.issues.map(i=>i.openingName+': '+i.message).join(' ');return;}
+    try{await publish({job:orderJob(order)});order.status='in-production';delete order.releaseIssue;}
+    catch(e){if(![400,409,422].includes(e.status))throw e;order.releaseIssue=e.message;}
+  }
+  const paymentInput=raw=>{
+    const input=raw||{},id=identifier(input.id),amountCents=amount(input.amountCents,'payment amount',10000000000);
+    const receivedOn=date(input.receivedOn);if(!receivedOn)fail(400,'Enter the payment date.');
+    if(!['cash','check','card','transfer','other'].includes(input.method))fail(400,'Choose a payment method.');
+    return {id,amountCents,receivedOn,method:input.method,note:text(input.note||'','payment note',500)};
+  };
+  if(operation==='order-confirm'){
+    const order=get(state.orders,data.id),confirmationId=identifier(data.confirmationId),saleTotalCents=amount(data.saleTotalCents,'agreed order total',10000000000),payment=paymentInput(data.payment);
+    if(payment.amountCents>saleTotalCents)fail(400,'Payment cannot exceed the agreed order total.');
+    const confirmation={confirmationId,saleTotalCents,payment};
+    if(order.finance?.confirmedAt){if(JSON.stringify(order.finance.confirmation)!==JSON.stringify(confirmation))fail(409,'This order was already confirmed. Reload it to record another payment.');return orderResult(order);}
+    current(order,data.version);
+    order.finance={confirmedAt:time,saleTotalCents,confirmation,payments:payment.amountCents?[{...payment,recordedAt:time}]:[]};
+    await sendConfirmedOrder(order);touch(order);return orderResult(order);
+  }
+  if(operation==='order-payment'){
+    const order=get(state.orders,data.id);if(!order.finance?.confirmedAt)fail(400,'Confirm the agreed order total first.');
+    const payment=paymentInput(data.payment),previous=order.finance.payments.find(p=>p.id===payment.id);
+    if(previous){if(Object.keys(payment).some(key=>payment[key]!==previous[key]))fail(409,'This payment ID was already used. Reload the order.');return orderResult(order);}
+    current(order,data.version);if(!payment.amountCents)fail(400,'Enter a payment greater than zero.');
+    if(payment.amountCents>orderFinancials(order).balanceCents)fail(400,'Payment cannot exceed the outstanding balance.');
+    if(order.finance.payments.length>=1000)fail(400,'Payment record capacity reached.');
+    order.finance.payments.push({...payment,recordedAt:time});touch(order);return orderResult(order);
+  }
+  if(operation==='order-payment-void'){
+    const order=get(state.orders,data.id),payment=order.finance?.payments.find(p=>p.id===identifier(data.paymentId));if(!payment)fail(404,'Payment not found.');
+    if(payment.voidedAt)return orderResult(order);current(order,data.version);
+    payment.voidReason=text(data.reason,'correction reason',500,true);payment.voidedAt=time;touch(order);return orderResult(order);
+  }
+  if(operation==='order-specifications-save'){
+    const order=get(state.orders,data.id);requireCutSheets(order);current(order,data.version);
+    if(state.jobs[order.id])fail(409,'This order is already in the shop. Its manufacturing specifications are locked.');
+    const original=manufacturingOpenings(order);
+    if(!Array.isArray(data.openings)||data.openings.length!==original.length)fail(400,'Keep the same ShutterSmart openings and quantities as the sold order.');
+    const canonical=openings(data.openings,{...order,productId:'shuttersmart',openings:orderManufacturingOpenings(order)},pricingFor);
+    if(canonical.some((o,i)=>o.id!==original[i].id||o.quantity!==original[i].quantity||!isManufacturingLine(o,{productId:'shuttersmart'})))fail(400,'Keep the same ShutterSmart openings and quantities as the sold order.');
+    order.specificationHistory=[...(order.specificationHistory||[]),{at:time,openings:structuredClone(orderManufacturingOpenings(order))}].slice(-20);
+    order.manufacturingSpecifications=canonical.map(({pricing,...o})=>o);
+    if(order.finance?.confirmedAt)await sendConfirmedOrder(order);touch(order);return orderResult(order);
+  }
   if(operation==='order-release'){
     const order=get(state.orders,data.id);requireCutSheets(order);if(state.jobs[order.id])return {job:state.jobs[order.id]};
     current(order,data.version);
@@ -151,4 +200,4 @@ export async function runSales(state,operation,data,time,publish){
   fail(404,'Unknown sales action.');
 }
 
-export function orderJob(order){requireCutSheets(order);return {productId:'shuttersmart',id:order.id,name:order.name,number:order.number,customer:contactName(order.customer).slice(0,120),notes:'',due:'',openings:manufacturingOpenings(order).map(o=>{const {pricing,...input}=o;return structuredClone(input);})};}
+export function orderJob(order){requireCutSheets(order);return {productId:'shuttersmart',id:order.id,name:order.name,number:order.number,customer:contactName(order.customer).slice(0,120),notes:'',due:'',openings:orderManufacturingOpenings(order).map(o=>{const {pricing,...input}=o;return structuredClone(input);})};}

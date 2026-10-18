@@ -1,3 +1,4 @@
+import {orderFinancials} from './public/order-finance.js';
 import {productName,lineProduct,isManufacturingLine,quoteProductNames} from './public/products.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {drawing} from './public/layouts.js';
@@ -50,9 +51,11 @@ export async function createSalesPDF({record:q,contact:c,totals:t},kind){
     for(const s of scene.shapes){if(s.kind==='line')page.drawLine({start:{x:dx+s.a[0]*scale,y:dy-s.a[1]*scale},end:{x:dx+s.b[0]*scale,y:dy-s.b[1]*scale},thickness:s.weight*scale,color:tone(s.tone)});else page.drawSvgPath(s.points.map((p,i)=>`${i?'L':'M'} ${p[0]} ${p[1]}`).join(' ')+' Z',{x:dx,y:dy,scale,color:tone(s.fill),borderColor:tone(s.tone),borderWidth:s.weight});}
     y-=height;
   }
-  y-=16;ensure(125);
+  const finance=orderFinancials(q,t.total);
+  y-=16;ensure(kind==='order'&&finance.confirmed?210:125);
   for(const [label,value]of [['Products',t.subtotal],['Discount',-t.discount],['Installation',t.installation],['Tax ('+(q.taxBasisPoints/100).toFixed(2)+'%)',t.tax]]){text(label,330,y,10,font,gray);text(money(value),576-font.widthOfTextAtSize(clean(money(value)),10),y,10);y-=19;}
-  text(t.unpriced?'TOTAL (incomplete)':'TOTAL',330,y,11,bold);text(money(t.total),576-bold.widthOfTextAtSize(clean(money(t.total)),12),y,12,bold);y-=35;
+  text(t.unpriced?'TOTAL (incomplete)':kind==='order'&&finance.confirmed?'QUOTED TOTAL':'TOTAL',330,y,11,bold);text(money(t.total),576-bold.widthOfTextAtSize(clean(money(t.total)),12),y,12,bold);y-=35;
+  if(kind==='order'&&finance.confirmed){for(const [label,value]of [['Agreed sale total',finance.saleTotalCents],['Payments received',finance.paidCents],['Balance due',finance.balanceCents]]){text(label,330,y,11,bold);text(money(value),576-bold.widthOfTextAtSize(clean(money(value)),12),y,12,bold);y-=23;}y-=12;}
   if(q.notes){paragraph('Notes',540,11,bold);paragraph(q.notes);}
   for(const [i,p]of pages.entries()){page=p;text(q.number+'  /  '+(i+1)+' of '+pages.length,36,26,8,font,gray);}
   return doc.save();

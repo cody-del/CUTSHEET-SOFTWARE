@@ -160,3 +160,13 @@ Never commit these values or put them in the browser bundle. The function create
 The owner signs in to `/owner.html` (12-hour session), then generates a one-time, 10-minute connection code for `/shop.html` on the iPad. There are no employee accounts. A paired device uses a Secure, HttpOnly, SameSite cookie for up to 180 days, and the owner can revoke it at any time. The server records the device name, not an employee identity. Password and session-secret changes invalidate owner sessions; device connections must be revoked separately. A paired iPad cannot release jobs, modify schedules, resolve owner material alerts, pair other devices, or read the owner dashboard API. Keep owner access in a separate browser from the paired shop session.
 
 The PostgreSQL deployment needs a real site/database connection and a cross-device acceptance check before shop use. Local workflow, persistence, timing, roles, authentication, pairing, revocation, stale writes, quantity validation and HTTP protections are covered by `test/shop.test.mjs`.
+
+## Order payments and shop handoff
+
+Converting a quote opens **Pricing & payment**. The owner confirms the final sale total (including tax) and records any amount already received, including zero. Home and Orders show confirmed sales, received payments, and outstanding balances. Legacy orders remain marked **Needs pricing** until confirmed; no payment history is inferred. Additional receipts use integer cents, optimistic versions, and retry-safe IDs. Voiding an incorrect entry retains its reason and timestamp; the app does not process charges or refunds.
+
+Confirmation automatically releases valid ShutterSmart lines to the shop, including the ShutterSmart subset of a mixed order. Other products remain on the sales order. Calculation warnings retain the financial record but hold cutting; pending cards remain visible in Production and Shop Floor without exposing financial or contact fields to paired employees. Before release, **Review measurements** allows correcting a separate manufacturing copy; the sold quote, quantity, and commercial price stay unchanged. Corrected specifications are locked once released.
+
+**Production** is one navigation destination with **Overview** for the owner board and **Shop Floor** for employee checklists. Both use the same jobs. Paired employees keep their shop-only interface.
+
+For isolated UI verification, run `PORT=4191 WORKSHOP_DATA_FILE=/private/tmp/cutsheet-test.json npm start` with a new temporary file. This keeps synthetic payment/order tests separate from `.data/workshop.json` and live Supabase.

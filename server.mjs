@@ -8,7 +8,7 @@ import {fileStore} from './shop-store.mjs';
 import {createShopService} from './shop-service.mjs';
 import {shopHandler} from './shop-api.mjs';
 const root=resolve(fileURLToPath(new URL('./public/',import.meta.url))),port=Number(process.env.PORT||4190);
-const handleShop=shopHandler(createShopService({store:fileStore(fileURLToPath(new URL('./.data/workshop.json',import.meta.url))),local:true}));
+const handleShop=shopHandler(createShopService({store:fileStore(process.env.WORKSHOP_DATA_FILE||fileURLToPath(new URL('./.data/workshop.json',import.meta.url))),local:true}));
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'};
 const server=http.createServer(async(req,res)=>{
   const json=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};

@@ -1,3 +1,4 @@
+import {waitingShopOrders} from './order-manufacturing.mjs';
 import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
@@ -94,9 +95,8 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
         if(operation==='jobs'||operation==='dashboard'){
-          return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,
+          return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
-              pendingOrders:Object.values(state.orders||{}).filter(order=>hasManufacturingLines(order)&&!state.jobs[order.id]).map(order=>({id:order.id,name:order.name,number:order.number,openingCount:manufacturingOpenings(order).length,createdAt:order.createdAt})),
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
         }
         if(operation==='pairing'){

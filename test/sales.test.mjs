@@ -59,7 +59,7 @@ test('new orders wait on the owner board and track shop production without dupli
   assert.equal(dashboard.jobs.length,0);
   assert.equal((await f.run('sales')).orders[0].productionStage,'waiting');
   const {code}=await f.run('pairing',{name:'Shop'}),shop={shop:(await f.service.run('pair',{code})).token};
-  assert.equal((await f.service.run('jobs',{},shop)).pendingOrders,undefined);
+  assert.equal((await f.service.run('jobs',{},shop)).pendingOrders[0].readiness.status,'confirmation');
   let {job:j}=await f.run('order-release',{id:order.id,version:order.version});
   assert.equal((await f.run('dashboard')).pendingOrders.length,0);
   assert.equal((await f.run('dashboard')).jobs.length,1);
@@ -283,4 +283,65 @@ test('explicit nonmanufacturing lines in a default quote never enter manufacturi
   await assert.rejects(f.run('order-release',{id:order.id,version:order.version}),/only for ShutterSmart/);
   assert.deepEqual((await f.run('dashboard')).pendingOrders,[]);
   assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).productionStage,null);
+});
+
+const receipt=(id,amountCents)=>({id,amountCents,receivedOn:'2026-10-17',method:'check',note:'Test receipt'});
+const confirmation=(order,saleTotalCents=70000,paid=20000)=>({id:order.id,version:order.version,confirmationId:'confirm-1',saleTotalCents,payment:receipt('initial-1',paid)});
+test('confirmed order stores agreed price, receipt and balance and automatically reaches the shop exactly once',async t=>{
+ const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ assert.deepEqual((await f.run('sales')).financials,{soldCents:0,receivedCents:0,balanceCents:0,needsPricing:1});
+ const request=confirmation(order,71023,20517),r=await f.run('order-confirm',request);
+ assert.equal(r.released,true);assert.equal(r.readiness.status,'released');
+ assert.deepEqual(r.financials,{confirmed:true,saleTotalCents:71023,paidCents:20517,balanceCents:50506,paymentStatus:'Partially paid'});
+ assert.deepEqual(r.order.openings,order.openings);assert.equal(quoteTotals(r.order).total,74376);
+ assert.equal((await f.run('order-confirm',request)).order.version,r.order.version);
+ await assert.rejects(f.run('order-confirm',{...request,saleTotalCents:90000}),e=>e.status===409);
+ const board=await f.run('dashboard');assert.equal(board.jobs.length,1);assert.equal(board.pendingOrders.length,0);assert.deepEqual(board.jobs[0].openings[0].result,calculate(opening));
+ assert.deepEqual((await f.run('sales')).financials,{soldCents:71023,receivedCents:20517,balanceCents:50506,needsPricing:0});
+ const other=createShopService({store:fileStore(f.path),password,secret});assert.deepEqual((await other.run('sales-get',{kind:'order',id:order.id},f.owner)).financials,r.financials);
+ const {code}=await f.run('pairing',{name:'Shop'}),shop={shop:(await f.service.run('pair',{code})).token};
+ const payload=JSON.stringify(await f.service.run('jobs',{},shop));for(const key of ['finance','saleTotalCents','payments','Test receipt',contact.email,'PRIVATE'])assert.ok(!payload.includes(key),key);
+});
+test('payment ledger rejects bad amounts, stale edits and changed retries; void retains an audit record',async t=>{
+ const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ for(const change of [{saleTotalCents:-1},{saleTotalCents:1.5},{payment:receipt('bad',80000)},{payment:{...receipt('bad',100),receivedOn:'2026-02-31'}}])await assert.rejects(f.run('order-confirm',{...confirmation(order),...change}));
+ const r=await f.run('order-confirm',confirmation(order));
+ for(const amount of [-1,0,1.5,50001])await assert.rejects(f.run('order-payment',{id:order.id,version:r.order.version,payment:receipt('bad',amount)}));
+ await assert.rejects(f.run('order-payment',{id:order.id,version:1,payment:receipt('stale',100)}),e=>e.status===409);
+ const request={id:order.id,version:r.order.version,payment:receipt('payment-2',12345)},p=await f.run('order-payment',request);
+ assert.equal(p.financials.paidCents,32345);assert.equal(p.financials.balanceCents,37655);
+ assert.equal((await f.run('order-payment',request)).order.finance.payments.length,2);
+ await assert.rejects(f.run('order-payment',{...request,payment:receipt('payment-2',100)}),e=>e.status===409);
+ await assert.rejects(f.run('order-payment-void',{id:order.id,version:p.order.version,paymentId:'payment-2',reason:''}));
+ const v=await f.run('order-payment-void',{id:order.id,version:p.order.version,paymentId:'payment-2',reason:'Duplicate paper entry'});
+ assert.equal(v.financials.paidCents,20000);assert.equal(v.financials.balanceCents,50000);assert.equal(v.order.finance.payments.length,2);assert.equal(v.order.finance.payments[1].voidReason,'Duplicate paper entry');assert.ok(v.order.finance.payments[1].voidedAt);
+ const paid=await f.run('order-payment',{id:order.id,version:v.order.version,payment:receipt('final',50000)});assert.equal(paid.financials.paymentStatus,'Paid');assert.equal(paid.financials.balanceCents,0);
+});
+test('blocked orders remain visible in the shop; corrected manufacturing inputs release without changing the sold quote or payment',async t=>{
+ const f=await fixture(t),q=await quote(f,{items:[{...opening,height:60}]}),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ const r=await f.run('order-confirm',confirmation(order));assert.equal(r.released,false);assert.equal(r.readiness.status,'blocked');assert.match(r.releaseIssue,/light gap/);
+ const pending=(await f.run('jobs')).pendingOrders;assert.equal(pending.length,1);assert.equal(pending[0].readiness.status,'blocked');assert.equal(pending[0].finance,undefined);
+ for(const items of [[],[{...opening,id:'new'}],[{...opening,quantity:3}],[{...opening,productId:'elegant-shutters'}]])await assert.rejects(f.run('order-specifications-save',{id:order.id,version:r.order.version,openings:items}));
+ const corrected=await f.run('order-specifications-save',{id:order.id,version:r.order.version,openings:[opening]});
+ assert.equal(corrected.released,true);assert.equal(corrected.order.openings[0].height,60);assert.equal(corrected.order.manufacturingSpecifications[0].height,59.5);assert.equal(corrected.order.specificationHistory[0].openings[0].height,60);
+ assert.deepEqual(corrected.financials,r.financials);assert.deepEqual((await f.run('sales-get',{kind:'quote',id:q.id})).record.openings,q.openings);
+ assert.equal((await f.run('jobs')).pendingOrders.length,0);assert.deepEqual((await f.run('jobs')).jobs[0].openings[0].input,opening);
+ assert.deepEqual(orderJob(corrected.order).openings,[opening]);
+ await assert.rejects(f.run('order-specifications-save',{id:order.id,version:corrected.order.version,openings:[opening]}),e=>e.status===409);
+ const handler=shopHandler(f.service),response=await handler(new Request('https://example.com/api/shop/order-pdf',{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify({id:order.id,units:'mm'})}));assert.equal(response.status,200);assert.equal((await PDFDocument.load(await response.arrayBuffer())).getPageCount(),1);
+});
+test('correcting an unconfirmed order waits for pricing; mixed orders send only ShutterSmart',async t=>{
+ const f=await fixture(t);await quote(f,{items:[]});
+ let {quote:q}=await f.run('quote-create',{id:'mixed',contactId:'contact-1',productId:'elegant-shutters'});
+ ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{id:'shade',name:'Shade',width:36,height:60,quantity:1,productId:'elegant-shutters'},{...opening,productId:'shuttersmart',height:60}],unitPrices:{shade:12500}}}));
+ const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ const fixed=await f.run('order-specifications-save',{id:order.id,version:order.version,openings:[{...opening,productId:'shuttersmart'}]});assert.equal(fixed.released,false);assert.equal(fixed.readiness.status,'confirmation');
+ const ready=await f.run('order-confirm',confirmation(fixed.order,90000,0));assert.equal(ready.released,true);assert.equal(ready.financials.paidCents,0);assert.equal(ready.order.finance.payments.length,0);
+ assert.equal((await f.run('jobs')).jobs[0].openings.length,1);assert.equal((await f.run('jobs')).jobs[0].openings[0].input.productId,'shuttersmart');assert.equal(ready.order.openings.length,2);
+});
+test('nonmanufacturing orders track sales and full payment without creating shop jobs',async t=>{
+ const f=await fixture(t);await quote(f,{items:[]});let {quote:q}=await f.run('quote-create',{id:'elegant',contactId:'contact-1',productId:'elegant-shutters'});
+ ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{id:'shade',name:'Shade',width:51.875,height:36.58,quantity:1}],unitPrices:{shade:45025}}}));
+ const {order}=await f.run('quote-convert',{id:q.id,version:q.version}),r=await f.run('order-confirm',confirmation(order,45025,45025));
+ assert.equal(r.released,false);assert.equal(r.readiness.status,'not-applicable');assert.equal(r.financials.paymentStatus,'Paid');assert.equal((await f.run('jobs')).jobs.length,0);assert.deepEqual((await f.run('sales')).financials,{soldCents:45025,receivedCents:45025,balanceCents:0,needsPricing:0});
 });

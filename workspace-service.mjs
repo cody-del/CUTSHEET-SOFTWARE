@@ -1,3 +1,4 @@
+import {orderReadiness} from './order-manufacturing.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {calculate} from './calculations.mjs';
 import {SalesError} from './sales-service.mjs';
@@ -30,7 +31,7 @@ export async function runWorkspace(state,operation,data,time,publish){
   const get=id=>{const draft=state.drafts[identifier(id)];if(!draft)fail(404,'This shared draft was not found.');return draft;};
   const current=(draft,version)=>{if(draft.version!==version)fail(409,'This draft changed on another device. Reload it before saving again.');};
   if(operation==='workspace'){
-    const orders=Object.values(state.orders||{}).filter(hasManufacturingLines).map(o=>({id:o.id,kind:'order',name:o.name,number:o.number,customer:[o.customer?.firstName,o.customer?.lastName].filter(Boolean).join(' '),openingCount:manufacturingOpenings(o).length,updatedAt:o.updatedAt,stage:state.jobs[o.id]?production(state.jobs[o.id]).label:'Awaiting release',released:!!state.jobs[o.id],archived:false}));
+    const orders=Object.values(state.orders||{}).filter(hasManufacturingLines).map(o=>({id:o.id,kind:'order',name:o.name,number:o.number,customer:[o.customer?.firstName,o.customer?.lastName].filter(Boolean).join(' '),openingCount:manufacturingOpenings(o).length,updatedAt:o.updatedAt,stage:state.jobs[o.id]?production(state.jobs[o.id]).label:orderReadiness(o).label,released:!!state.jobs[o.id],archived:false}));
     const drafts=Object.values(state.drafts).map(d=>({id:d.id,kind:'draft',name:d.name,number:d.number,customer:d.customer,openingCount:d.openings.length,updatedAt:d.updatedAt,stage:state.jobs[d.id]?production(state.jobs[d.id]).label:'Draft',released:!!state.jobs[d.id],archived:d.archived,imported:!!d.sourceId}));
     const jobs=Object.values(state.jobs).filter(j=>!state.orders?.[j.id]&&!state.drafts[j.id]).map(j=>({id:j.id,kind:'job',name:j.name,number:j.number,customer:'',openingCount:j.openings.length,updatedAt:j.updatedAt,stage:production(j).label,released:true,archived:false}));
     return {cutSheets:[...orders,...drafts,...jobs].sort((a,b)=>b.updatedAt-a.updatedAt)};
