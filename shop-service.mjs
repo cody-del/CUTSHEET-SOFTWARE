@@ -3,6 +3,7 @@ import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
 import {salesOperations,runSales,orderJob} from './sales-service.mjs';
 import {progress,production,finishingStages,stageStatus} from './public/shop-state.js';
+import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
 const equal=(a,b)=>timingSafeEqual(Buffer.from(hash(a)),Buffer.from(hash(b)));
@@ -23,7 +24,9 @@ function releaseJob(state,data,a,time){
   let input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
   if(state.orders?.[id])input=orderJob(state.orders[id]);
+  else if(state.drafts?.[id]){const draft=state.drafts[id];if(draft.archived)fail(400,'Restore this draft before releasing it to the shop.');if(data.job.version!==draft.version)fail(409,'This draft changed on another device. Reload it before releasing.');input={id:draft.id,productId:'shuttersmart',name:draft.name,number:draft.number,notes:draft.notes,due:draft.due,openings:structuredClone(draft.openings)};}
   else if(state.quotes?.[id]){if(!hasManufacturingLines(state.quotes[id]))fail(422,CUT_SHEETS_ONLY);fail(422,'Mark the quote sold before sending its ShutterSmart lines to the shop.');}
+  if(!input.openings.length)fail(400,'Add an opening before releasing this job.');
   if(!supportsCutSheets(input))fail(422,CUT_SHEETS_ONLY);
   if(previous)fail(409,'This job is already in the shop. Its released cut sheet is kept unchanged.');
   if(Object.keys(state.jobs).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
@@ -88,6 +91,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           return {cookie:'shop',token,maxAge:180*86400};
         }
         if(salesOperations.includes(operation)){const a=requireActor(state,cookie,true);return runSales(state,operation,data,time,release=>releaseJob(state,release,a,time));}
+        if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,

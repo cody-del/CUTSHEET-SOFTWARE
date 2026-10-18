@@ -8,17 +8,17 @@ With Node.js 22 or newer, run `npm install` in this directory once, then `npm st
 
 Open **http://127.0.0.1:4190/**. Keep that origin consistent: browser storage is separate on `localhost`. The server binds only to the local computer. When run locally, calculations and PDF generation stay on this computer. This app is separate from the marketing website.
 
-Jobs save to localStorage in the active browser. Export a backup before clearing browser data or moving computers. Restore merges by job ID and preserves a newer local revision. Example data is clearly labeled. PDFs use US Letter, start each opening on a new page, paginate long notes, and include quantity, cut size, profile, and machining details. Dimensions retain full precision during calculations and grouping; displayed lengths use 2 decimal places in mm or 4 in inches. No kerf allowance is added.
+New standalone cut sheets save to the shared workshop, alongside contacts, quotes, and orders. Older browser drafts are detected in Cut Sheets and can be imported as shared copies; their original localStorage records remain intact. Repeat imports are deduplicated, and later browser changes import a new copy without replacing cloud revisions. PDFs use US Letter, start each opening on a new page, paginate long notes, and include quantity, cut size, profile, and machining details. Dimensions retain full precision during calculations and grouping; displayed lengths use 2 decimal places in mm or 4 in inches. No kerf allowance is added.
 
 ## Deploy to Netlify
 
 Import the `cody-del/CUTSHEET-SOFTWARE` GitHub repository into Netlify. The root `netlify.toml` sets Node 22, runs the test suite before every deployment, publishes `public/`, and bundles the calculation/PDF handler from `netlify/functions/api.mjs`. The calculator and PDF generator need no environment variables or external database. The optional shared workshop needs the setup below. The workbook is a JSON module bundled into the function; it is not published as a static asset.
 
-The browser calls `/api/info`, `/api/calculate`, and `/api/pdf` on the same site. On Netlify, opening measurements and job details needed to generate PDFs are processed by Netlify Functions. The calculation and PDF endpoints do not store or log those requests. Explicitly sending a job to the shop stores its released cut sheets in the shared workshop. Saved jobs and the uploaded logo remain in localStorage in the current browser; they are not shared between users or devices.
+The browser calls `/api/info`, `/api/calculate`, and `/api/pdf` on the same site. On Netlify, opening measurements and job details needed to generate PDFs are processed by Netlify Functions. The calculation and PDF endpoints do not store or log those requests. Explicitly sending a job to the shop stores its released cut sheets in the shared workshop. Standalone drafts now share the same transaction store as quotes and orders. Uploaded logos and unit preferences remain local to the browser.
 
-To move jobs from the local app to the hosted site, choose **Settings → Export backup** locally, then **Settings → Import backup** on the live site. Upload your logo again in the live site's Settings. Browser storage is separate for each origin, so choose the stable production URL for everyday work. Deploy preview URLs each have separate storage.
+To move jobs from the local app to the hosted site, choose **Settings → Export browser backup** locally, then **Cut Sheets → Import backup** on the live site. Upload your logo again in the live site's Settings. Browser storage is separate for each origin, so choose the stable production URL for everyday work. Deploy preview URLs each have separate storage.
 
-Anyone with the site URL can use the calculator, but they cannot read another browser's saved drafts. The shared workshop has separate owner and paired-device access. Source workbook validation restrictions also apply to hosted PDF downloads.
+Shared drafts require owner access, like contacts and quotes. Temporary public-owner mode grants these same capabilities to visitors when enabled. Paired shop devices cannot read shared drafts; they receive released manufacturing jobs only. Source workbook validation restrictions also apply to hosted PDF downloads.
 
 ## Measurement basis and light gap
 
@@ -102,7 +102,7 @@ The opening schematic occupies a full-width row below the measurements and autom
 
 ## Contacts, quotes, pricing, and orders
 
-Open `/contacts.html` from **Contacts & quotes**. The owner workspace stores contact names, addresses, phone numbers, email addresses, and private notes. Each contact shows its quotes and orders. Set the Shutter Smart price per square foot and optional minimum area per unit in **Pricing**, then create a quote and use **Configure openings** to enter the same shutter specifications used by the cut-sheet editor.
+Open **Contacts** from the fixed owner menu. **Quotes** and **Orders** also have their own lists. The owner workspace stores contact names, addresses, phone numbers, email addresses, and private notes. Each contact shows its quotes and orders. Set the Shutter Smart price per square foot and optional minimum area per unit in **Settings → Product pricing**, then use **Build Quote** to enter the same shutter specifications used by the cut-sheet editor.
 
 The contact form separates street address, city, and ZIP code, with Florida fixed as the state. ZIP codes may be five digits or ZIP+4. Notes stay in the contact's dedicated notes section. New addresses also retain a formatted address for existing contact views and quote/order PDFs; accepted orders keep their original address snapshot. Recognizable older Florida addresses populate the separate fields when edited, while unrecognized address text is preserved intact.
 
@@ -110,13 +110,23 @@ Billable area is `max(width × height ÷ 144, minimum area)` with dimensions in 
 
 **Convert to order** preserves the customer details, prices, and opening specifications and locks the source quote. The order can produce quote-style order PDFs, original manufacturing cut-sheet PDFs, and a shop release. Repeated conversion or release requests return the same record. Manufacturing warnings, including unacceptable light gaps, still block cut-sheet PDFs and shop release. Order editing and revision management are not included in this first version.
 
-Contacts, quotes, pricing, and orders use the existing shared Supabase workshop transaction store in production, and `.data/workshop.json` locally. Existing records remain compatible; no separate schema migration or client database credentials are needed. Owner access is required for every sales endpoint and sales PDF. Paired shop devices receive only the released manufacturing data, without prices, contact email/address, or private contact notes. Shared records use version checks to prevent overwriting edits from another device. Existing standalone browser jobs and uploaded logos retain their original browser-local storage.
+Contacts, quotes, pricing, and orders use the existing shared Supabase workshop transaction store in production, and `.data/workshop.json` locally. Existing records remain compatible; no separate schema migration or client database credentials are needed. Owner access is required for every sales endpoint and sales PDF. Paired shop devices receive only the released manufacturing data, without prices, contact email/address, or private contact notes. Shared records use version checks to prevent overwriting edits from another device. Existing standalone browser drafts remain available for copy-based import from Cut Sheets; logos remain browser-local.
 
 The local preview skips codes and passwords on this computer. Demonstration contacts and sample rates entered locally do not seed the production database. Tests in `test/sales.test.mjs` cover pricing precision, persistence, authorization, frozen orders, retries, stale updates, PDF routes, and manufacturing handoff.
 
-## Digital shop floor and owner dashboard
+## Owner workspace navigation
 
-Open `/owner.html` for production progress and `/shop.html` for the iPad cut sheets. From a saved job, **Send to shop** publishes a fixed, server-calculated copy. Draft edits never change released dimensions or quantities. Releasing the same job twice is rejected; revision/re-release management is not included yet. Material shortages are dashboard alerts, not email or push notifications.
+`/` is Home. Every owner screen uses the same menu: Home, Contacts, Quotes, Orders, Cut Sheets, Production, Settings. Pricing and shop-device setup live under Settings. Shop Floor remains a focused employee view, with a workspace exit for owners.
+
+`/editor.html?quote=ID` builds quote lines; `?order=ID` previews an accepted order's ShutterSmart cut sheets; `?draft=ID` edits a shared standalone draft; `?job=ID` previews a legacy released shop job. Existing root `/?quote=ID` and `/?order=ID` links redirect to the editor. `/cutsheets.html` starts at the shared list rather than automatically opening a browser job.
+
+App navigation prompts Save and leave, Discard changes, or Stay here for unsaved forms. Same-document browser Back uses this guard; closing/reloading or leaving a document through browser controls retains the browser's native unsaved-change warning. Production details use history entries so Back returns to the board. List searches, production filters, return context, and list scroll are retained in session storage.
+
+`workspace-service.mjs` stores `drafts` and `draftImports` inside the existing private workshop JSON row, without a schema or permission change. Draft saves use optimistic versions. Imports keep source copies and record a content fingerprint for idempotency. Draft release uses the saved server specifications and the existing calculation validation. `test/workspace.test.mjs` covers persistence, conflict protection, safe imports, locked release, authorization, and invalid configurations.
+
+## Digital shop floor and Production
+
+Open `/owner.html` for production progress and `/shop.html` for the iPad cut sheets. From a saved draft or accepted order, **Release to shop** publishes a fixed, server-calculated copy. Released drafts are locked. Repeating a draft/order release returns the existing job; the legacy publish endpoint rejects duplicates; revision/re-release management is not included yet. Material shortages are dashboard alerts, not email or push notifications.
 
 The owner board follows **Waiting → Cutting → Capping → Boring → Building → Hinging → Complete**. A converted order appears in Waiting immediately, with an **Open order** link until its cut sheet is sent to the shop. Unreleased orders remain outside the employee job list. Released jobs enter Cutting when the cutting timer starts or any line is marked partially/fully cut. Pausing keeps the job in Cutting. Every piece on every opening must be cut before it moves automatically to Capping.
 

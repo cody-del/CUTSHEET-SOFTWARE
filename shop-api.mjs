@@ -3,14 +3,15 @@ import {createSalesPDF} from './sales-pdf.mjs';
 import {createPDF} from './pdf.mjs';
 import {ShopError} from './shop-service.mjs';
 import {ValidationError} from './calculations.mjs';
+import {workspaceOperations} from './workspace-service.mjs';
 
 const json=(status,data,headers={})=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',...headers}});
 const cookieNames={owner:'cutsheet_owner',shop:'cutsheet_shop'};
 export function shopHandler(service) {
   return async request=>{
     const url=new URL(request.url),operation=url.pathname.split('/').pop();
-    if(![...salesOperations,'sales-document','order-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
-    const read=['sales','session','jobs','dashboard'].includes(operation);
+    if(![...salesOperations,...workspaceOperations,'sales-document','order-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
+    const read=['workspace','sales','session','jobs','dashboard'].includes(operation);
     if(request.method!==(read?'GET':'POST'))return json(405,{error:read?'GET required.':'POST required.'});
     if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});
     if(!read&&!request.headers.get('content-type')?.startsWith('application/json'))return json(415,{error:'Expected JSON.'});
