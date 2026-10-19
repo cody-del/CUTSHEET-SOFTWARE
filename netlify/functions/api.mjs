@@ -1,5 +1,6 @@
 import {calculate, ValidationError, SCOPE, VERSION} from '../../calculations.mjs';
 import {createPDF} from '../../pdf.mjs';
+import {accountAPI} from '../../account-runtime.mjs';
 
 const MAX_BODY_BYTES = 512000;
 const json = (status, data) => new Response(JSON.stringify(data), {
@@ -10,7 +11,8 @@ const json = (status, data) => new Response(JSON.stringify(data), {
 // Keep the browser's existing API URLs on the deployed site.
 export const config = {path: ['/api/info','/api/calculate','/api/pdf']};
 
-export default async function handler(request) {
+export default request=>accountAPI.protect(request,calculationHandler);
+export async function calculationHandler(request) {
   const url = new URL(request.url);
   if (url.pathname === '/api/info' && request.method === 'GET') {
     return json(200, {scope: SCOPE, version: VERSION});

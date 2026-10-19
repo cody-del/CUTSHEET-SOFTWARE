@@ -63,3 +63,9 @@ test('detail caches are distinct for each record and are never used for write re
  await client.request('session');assert.equal((await client.request('sales-get',{kind:'order',id:'one'})).id,'one');assert.equal((await client.request('sales-get',{kind:'order',id:'two'})).id,'two');
  await client.request('sales-get',{kind:'order',id:'one'});assert.equal(reads,2);
 });
+
+test('switching between two owners clears the prior account snapshots even when the role is unchanged',async()=>{
+ let owner='account-a';const client=createShopClient({storage:memory(),fetch:async url=>response(url.endsWith('session')?{role:'owner',id:owner,ownerId:owner}:{customer:'Only '+owner})});
+ await client.request('session');await client.request('sales');owner='account-b';await client.request('session',undefined,{force:true});
+ assert.equal(client.peek('sales'),undefined);assert.equal((await client.request('sales')).customer,'Only account-b');
+});

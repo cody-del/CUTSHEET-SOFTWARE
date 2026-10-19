@@ -1,7 +1,8 @@
 // Display snapshots only. Every write still goes to the server with its version.
+import {accountFetch} from './account-storage.js';
 const READS=new Set(['session','sales','workspace','dashboard','jobs','sales-get','draft-get','job-get']);
 const AUTH=new Set(['login','logout','pair']);
-const KEY='cutsheet-read-cache-v1',REVISION='cutsheet-cache-revision-v1';
+const KEY='cutsheet-read-cache-v2',REVISION='cutsheet-cache-revision-v1';
 export const FRESH_MS=30000,DISPLAY_MS=5*60000;
 const copy=value=>value===undefined?undefined:structuredClone(value);
 const identity=s=>JSON.stringify([s?.role,s?.id,s?.local,s?.publicOwnerAccess]);
@@ -67,7 +68,7 @@ export function createShopClient({fetch:fetcher,storage,sharedStorage,now=Date.n
   return {request,peek,checkRevision};
 }
 const safeStorage=name=>{try{return globalThis[name];}catch{return undefined;}};
-const client=createShopClient({fetch:(...args)=>fetch(...args),storage:safeStorage('sessionStorage'),sharedStorage:safeStorage('localStorage'),notify:type=>globalThis.window?.dispatchEvent(new Event('shop-'+type))});
+const client=createShopClient({fetch:(...args)=>accountFetch(...args),storage:safeStorage('sessionStorage'),sharedStorage:safeStorage('localStorage'),notify:type=>globalThis.window?.dispatchEvent(new Event('shop-'+type))});
 export const shopRequest=client.request,cachedShop=client.peek;
 globalThis.window?.addEventListener('storage',e=>{if(e.key===REVISION)client.checkRevision();});
 export async function warmWorkspace(){

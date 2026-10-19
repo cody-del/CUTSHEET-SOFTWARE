@@ -1,0 +1,11 @@
+import {Pool} from 'pg';
+import {databaseOptions} from './shop-database.mjs';
+import {accountStore} from './account-store.mjs';
+import {createAccountAuth} from './account-auth.mjs';
+import {accountShopHandler} from './account-api.mjs';
+const options=databaseOptions(),pool=options?new Pool(options):null;
+pool?.on('error',()=>console.error('Private workspace database connection interrupted.'));
+const missing={init:async()=>{throw Error('Database unavailable.');},secret:async()=>'',rateLimit:async()=>false};
+export const accounts=pool?accountStore(pool):missing;
+export const accountAuth=createAccountAuth({store:accounts});
+export const accountAPI=accountShopHandler({store:accounts,auth:accountAuth,secret:process.env.CUTSHEET_SESSION_SECRET});

@@ -47,19 +47,20 @@ function releaseJob(state,data,a,time){
   audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
 }
 
-export function createShopService({store,local=false,publicOwnerAccess=false,password='',secret='',now=()=>Date.now()}) {
+export function createShopService({store,local=false,publicOwnerAccess=false,password='',secret='',authenticatedActor=null,now=()=>Date.now()}) {
   // Explicit server configuration only; requests and cookies cannot enable this.
   const publicAccess=publicOwnerAccess===true;
   const setupIssues=[
     ...(!store?['The database connection is missing.']:[]),
-    ...(!local&&password.length<12?['The owner password must contain at least 12 characters.']:[]),
-    ...(!local&&secret.length<32?['The session signing key must contain at least 32 characters.']:[])
+    ...(!local&&!authenticatedActor&&password.length<12?['The owner password must contain at least 12 characters.']:[]),
+    ...(!local&&!authenticatedActor&&secret.length<32?['The session signing key must contain at least 32 characters.']:[])
   ];
   const configured=setupIssues.length===0;
   const sign=value=>createHmac('sha256',secret+hash(password)).update(value).digest('base64url');
   function ownerToken(){const body=Buffer.from(JSON.stringify({expires:now()+12*3600000})).toString('base64url');return body+'.'+sign(body);}
   function validOwner(token){try{const [body,sig]=token.split('.');return equal(sig,sign(body))&&JSON.parse(Buffer.from(body,'base64url')).expires>now();}catch{return false;}}
   function actor(state,cookie={}){
+    if(authenticatedActor)return authenticatedActor;
     if(publicAccess)return {role:'owner',id:'public-owner',name:'Public owner access'};
     if(cookie.shop){const d=state.devices[hash(cookie.shop)];if(d&&!d.revoked&&d.expires>now())return {role:'shop',id:d.id,name:d.name};}
     if(local||validOwner(cookie.owner||''))return {role:'owner',id:'owner',name:local?'Owner · local preview':'Owner'};

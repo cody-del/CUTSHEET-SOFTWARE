@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PDFDocument} from 'pdf-lib';
-import handler from '../netlify/functions/api.mjs';
+import {calculationHandler as handler} from '../netlify/functions/api.mjs';
 
 const opening = {name:'Hosted test',width:36,height:59.75,quantity:1,left:1,right:1,frame:'ST',louver:4,mount:'I',sizeMethod:'W',sides:'4W',color:'W',tilt:'Front',stile:'Flat',divider:0,notes:''};
 const job = {number:'HOST-001',customer:'Example',openings:[opening]};

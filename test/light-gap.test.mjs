@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {calculate,combinedParts,lightGapWarning} from '../calculations.mjs';
 import {createPDF} from '../pdf.mjs';
-import handler from '../netlify/functions/api.mjs';
+import {calculationHandler as handler} from '../netlify/functions/api.mjs';
 
 const base={name:'Light gap check',width:36,height:60,quantity:1,left:1,right:1,frame:'TR',louver:4,mount:'I',sizeMethod:'S',sides:'4W',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
 const postOpening={...base,width:72,tposts:{construction:'two-piece',positions:[36],sections:[{left:1,right:0},{left:0,right:1}]}};

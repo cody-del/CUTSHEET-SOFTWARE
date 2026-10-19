@@ -1,9 +1,10 @@
+import {accountStorage} from './account-storage.js';
 const BRANDING_KEY='cut-sheet-branding-v1';
 const MAX_DATA_LENGTH=1200000;
-export function loadLogo(storage=localStorage){
+export function loadLogo(storage=accountStorage){
   try{const logo=JSON.parse(storage.getItem(BRANDING_KEY));return logo&&typeof logo.name==='string'&&typeof logo.data==='string'&&logo.data.length<=MAX_DATA_LENGTH&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(logo.data)?logo:null;}catch{return null;}
 }
-export function saveLogo(logo,storage=localStorage){
+export function saveLogo(logo,storage=accountStorage){
   if(logo)storage.setItem(BRANDING_KEY,JSON.stringify(logo));else storage.removeItem(BRANDING_KEY);
 }
 export async function readLogoFile(file){
