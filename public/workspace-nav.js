@@ -39,11 +39,11 @@ export function restoreScroll(key){requestAnimationFrame(()=>scrollTo(0,sessionV
 export function keepScroll(key){remember('scroll:'+key,scrollY);}
 let guard;
 export function navigateState(url,state={}){const index=(history.state?.workspaceIndex||0)+1;history.pushState({...state,workspaceIndex:index},'',safeLocalURL(url));window.dispatchEvent(new Event('workspace-route'));}
-export function installNavigationGuard({isDirty=()=>false,save=async()=>{},discard=()=>{},onRoute=()=>{}}={}){
+export function installNavigationGuard({isDirty=()=>false,save=async()=>{},discard=()=>{},onRoute=()=>{},saveLabel=()=> 'Save and leave'}={}){
  let dialog=null,previous={url:location.href,index:history.state?.workspaceIndex||0},reverting=false,pending=null;
  history.replaceState({...history.state,workspaceIndex:previous.index},'');
  async function choose(){if(!isDirty())return true;if(dialog?.open)return false;
-  dialog=document.createElement('dialog');dialog.className='leave-dialog';dialog.innerHTML='<div class="modal-heading"><h2>Save before leaving?</h2></div><div class="modal-body"><p>You have unsaved changes on this page.</p><p class="field-error" role="alert"></p></div><div class="modal-footer"><button class="btn" data-stay>Stay here</button><button class="btn" data-discard>Discard changes</button><button class="btn primary" data-save>Save and leave</button></div>';document.body.append(dialog);dialog.showModal();
+  dialog=document.createElement('dialog');dialog.className='leave-dialog';dialog.innerHTML='<div class="modal-heading"><h2>Save before leaving?</h2></div><div class="modal-body"><p>You have unsaved changes on this page.</p><p class="field-error" role="alert"></p></div><div class="modal-footer"><button class="btn" data-stay>Stay here</button><button class="btn" data-discard>Discard changes</button><button class="btn primary" data-save>'+h(saveLabel())+'</button></div>';document.body.append(dialog);dialog.showModal();
   return new Promise(resolve=>{let done=false;const finish=value=>{if(done)return;done=true;dialog.close();dialog.remove();resolve(value);};dialog.querySelector('[data-stay]').onclick=()=>finish(false);dialog.oncancel=e=>{e.preventDefault();finish(false);};dialog.querySelector('[data-discard]').onclick=()=>{discard();finish(true);};dialog.querySelector('[data-save]').onclick=async()=>{const button=dialog.querySelector('[data-save]');button.disabled=true;try{await save();if(isDirty())throw new Error('There are still unsaved changes. Save them before leaving.');finish(true);}catch(e){dialog.querySelector('[role="alert"]').textContent=e.message;button.disabled=false;}};});
  }
  async function leave(fn){if(await choose())fn();}

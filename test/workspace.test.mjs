@@ -69,3 +69,24 @@ test('imports keep changed browser metadata even when a job was already released
  assert.equal((await service.run('draft-get',{id:imported.id})).draft.notes,'New notes after release');
  assert.equal((await service.run('jobs')).jobs[0].notes,fields.notes);
 });
+
+
+test('standalone cut sheets link only to workspace contacts, appear on contacts and stay independent of sales',async t=>{
+ const {service}=await setup(t);
+ const contactFields={firstName:'Alex',lastName:'Sample',address:'',phone:'',email:'',notes:'Private contact notes'};
+ await service.run('contact-save',{id:'linked-contact',version:0,fields:contactFields});
+ const {draft}=await service.run('draft-save',{id:'linked-sheet',version:0,fields:{...fields,contactId:'linked-contact',customer:'Forged label'}});
+ assert.equal(draft.contactId,'linked-contact');assert.equal(draft.customer,'Alex Sample');
+ const contact=await service.run('sales-get',{kind:'contact',id:'linked-contact'});
+ assert.equal(contact.cutSheets[0].id,draft.id);assert.equal(contact.quotes.length,0);assert.equal(contact.orders.length,0);
+ await assert.rejects(service.run('draft-save',{id:draft.id,version:draft.version,fields:{...fields,contactId:'other-account-contact'}}),/contact from this workspace/);
+ assert.equal((await service.run('draft-get',{id:draft.id})).draft.version,draft.version);
+ const {job}=await service.run('draft-release',{id:draft.id,version:draft.version});
+ for(const value of ['linked-contact','Private contact notes','Alex Sample'])assert.ok(!JSON.stringify(job).includes(value));
+ assert.equal((await service.run('sales-get',{kind:'contact',id:'linked-contact'})).cutSheets[0].released,true);
+ assert.equal((await service.run('sales')).financials.soldCents,0);
+ await service.run('draft-save',{id:'unlink-sheet',version:0,fields:{...fields,contactId:'linked-contact'}});
+ await service.run('draft-save',{id:'unlink-sheet',version:1,fields:{...fields,contactId:'',customer:'Walk-in customer'}});
+ assert.equal((await service.run('sales-get',{kind:'contact',id:'linked-contact'})).cutSheets.length,1);
+ assert.equal((await service.run('draft-get',{id:'unlink-sheet'})).draft.customer,'Walk-in customer');
+});

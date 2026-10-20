@@ -79,7 +79,7 @@ export async function runSales(state,operation,data,time,publish){
   }
   if(operation==='sales'){const orders=Object.values(state.orders).map(orderSummary);return {financials:salesFinancials(orders),pricing:state.pricing,productPricing:Object.fromEntries(PRODUCTS.map(product=>[product.id,pricingFor({productId:product.id})])),contacts:Object.values(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:Object.values(state.quotes).map(summary),orders};}
   if(operation==='sales-get'){
-    if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:Object.values(state.quotes).filter(q=>q.contactId===contact.id).map(summary),orders:Object.values(state.orders).filter(q=>q.contactId===contact.id).map(orderSummary)};}
+    if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:Object.values(state.quotes).filter(q=>q.contactId===contact.id).map(summary),orders:Object.values(state.orders).filter(q=>q.contactId===contact.id).map(orderSummary),cutSheets:Object.values(state.drafts||{}).filter(d=>d.contactId===contact.id).map(d=>({id:d.id,name:d.name,number:d.number,openingCount:d.openings.length,archived:d.archived,released:!!state.jobs[d.id],stage:state.jobs[d.id]?production(state.jobs[d.id]).label:'Draft'}))};}
     if(!['quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const record=get(data.kind==='quote'?state.quotes:state.orders,data.id);
     requireProduct(record);

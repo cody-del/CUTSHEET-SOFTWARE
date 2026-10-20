@@ -1,6 +1,9 @@
 import {lineProduct,productId} from './products.js';
 // Shared by the quote builder and the server so preview prices round identically.
 export function openingPrice(opening,quote){
+  if(!Number.isFinite(opening.width)||opening.width<=0||!Number.isFinite(opening.height)||opening.height<=0){
+    return {openingId:opening.id,area:0,billableArea:0,unitPrice:null,lineTotal:null,override:false};
+  }
   const id=productId(lineProduct(opening,quote)),pricing=opening.pricing??(id===productId(quote)?quote.pricing:quote.productPricing?.[id]);
   const area=opening.width*opening.height/144,billableArea=Math.max(area,(pricing?.minimumAreaHundredths||0)/100);
   const override=quote.unitPrices?.[opening.id],rate=pricing?.rateCents;

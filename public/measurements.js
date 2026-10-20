@@ -14,7 +14,10 @@ export function parseMeasurement(raw) {
 }
 
 export function measurementInput(inches, unit = 'in') {
+  if(inches===null||inches===undefined||inches==='')return '';
   // Suppress conversion noise without applying the cut-sheet's display rounding to inputs.
   const value = unit === 'mm' ? inches * 25.4 : inches;
   return String(Number(value.toPrecision(15)));
 }
+
+export const hasMeasurements=o=>Number.isFinite(o?.width)&&o.width>0&&Number.isFinite(o?.height)&&o.height>0;

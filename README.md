@@ -189,3 +189,12 @@ Configuration for project `uvfwnjrhbixcgjymzomm`:
 6. After the intended owner signs up and verifies their email, explicitly assign existing records using `node scripts/assign-legacy-owner.mjs owner@example.com` with the database credentials supplied in the environment. The script requires an authorized, verified account, refuses a populated destination or a repeated assignment, preserves the original snapshot, and discards obsolete device credentials. New accounts always start empty. Reconnect shop iPads from the correct owner's Settings.
 
 Verification: `npm test` includes real PostgreSQL RLS checks in PGlite, two-account contact/job/PDF isolation, wrong-code/direct-signup rejection, session revocation, legacy-cookie rejection, same-role cache changes, and device scoping/revocation. Hosted SMTP, real sign-in, and live database advisor/restore checks still require access to the correct Supabase project; local tests do not replace those checks.
+
+
+## Quote and cut-sheet workflows
+
+Home offers **Create Quote** and **Create Cut Sheet**. A standalone ShutterSmart cut sheet needs no quote or payment: enter measurements, save, and download a print PDF. **Send to Production** is a separate action that locks specifications and opens the digital cutting/finishing checklist. Standalone drafts can optionally link to an existing workspace contact and appear in that contact’s Standalone cut sheets section.
+
+Quotes support multiple products. After acceptance, the pricing/payment screen clearly states whether confirmation will send ShutterSmart lines to Production or hold them for measurement review. Non-ShutterSmart products remain on the quote/order. Every order release path, including legacy publish requests, requires the order’s server-stored sale confirmation. No payment is required to be received; zero received is valid. Confirmed orders with corrected valid measurements release on **Save corrections & send to Production**. Navigation save dialogs use that same explicit action label.
+
+New openings start with blank width and height. Both measurements are required before saving or printing an opening; no made-up measurements are used for pricing, schematic previews, or calculations. Other valid inputs and existing saved jobs keep their previous behavior. Older unconfirmed orders, including ones already in Production, remain visible under Home’s Orders to review until the owner confirms their sale and payment.

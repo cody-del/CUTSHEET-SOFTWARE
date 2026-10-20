@@ -43,7 +43,12 @@ export async function runWorkspace(state,operation,data,time,publish){
     if(state.jobs[id])fail(409,'This job has been released. Its manufacturing specifications are locked.');
     if(state.orders?.[id]||state.quotes?.[id])fail(409,'That identifier belongs to an order or quote.');
     if(!previous&&Object.keys(state.drafts).length>=500)fail(400,'Shared draft capacity reached.');
-    const draft={...previous,...fields(data.fields),id,createdAt:previous?.createdAt||time,updatedAt:time,version:(previous?.version||0)+1};
+    const contactId=data.fields?.contactId??previous?.contactId??'';
+    const contact=contactId?state.contacts?.[identifier(contactId)]:null;
+    if(contactId&&!contact)fail(404,'Choose a contact from this workspace.');
+    const input=fields(data.fields);
+    if(contact)input.customer=[contact.firstName,contact.lastName].filter(Boolean).join(' ').slice(0,120);
+    const draft={...previous,...input,contactId,id,createdAt:previous?.createdAt||time,updatedAt:time,version:(previous?.version||0)+1};
     state.drafts[id]=draft;return {draft};
   }
   if(operation==='draft-import'){

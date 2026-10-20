@@ -19,6 +19,8 @@ const opening={id:'opening-1',name:'Living room',width:36,height:59.5,quantity:2
 async function fixture(t){const dir=await mkdtemp(join(tmpdir(),'cutsheet-sales-'));t.after(()=>rm(dir,{recursive:true,force:true}));const path=join(dir,'workshop.json'),service=createShopService({store:fileStore(path),password,secret}),owner={owner:(await service.run('login',{password})).token};const run=(op,data={})=>service.run(op,data,owner);return {service,owner,path,run};}
 async function quote(f,{priced=true,items=[opening]}={}){await f.run('contact-save',{id:'contact-1',version:0,fields:contact});if(priced)await f.run('pricing-save',{version:0,rateCents:2500,minimumAreaHundredths:0});const {quote}=await f.run('quote-create',{id:'quote-1',contactId:'contact-1'});return (await f.run('quote-save',{id:quote.id,version:quote.version,fields:{openings:items,notes:'Customer quote note'}})).quote;}
 
+async function confirmForProduction(f,order){return (await f.run('order-confirm',confirmation(order,quoteTotals(order).total,0))).order;}
+
 test('contacts and pricing persist across service instances; empty legacy workshop upgrades without losing jobs',async t=>{const f=await fixture(t);await quote(f);const second=createShopService({store:fileStore(f.path),password,secret});const data=await second.run('sales',{},f.owner);assert.equal(data.contacts[0].email,contact.email);assert.equal(data.pricing.rateCents,2500);assert.equal(data.quotes[0].openingCount,1);const state=JSON.parse(await readFile(f.path));assert.ok(state.jobs);assert.ok(state.pairings);assert.equal(state.schema,1);});
 
 test('contacts, prices, quote PDFs and orders are inaccessible to anonymous and paired shop clients',async t=>{const f=await fixture(t),q=await quote(f);const {code}=await f.run('pairing',{name:'Saw'}),paired={shop:(await f.service.run('pair',{code})).token};for(const op of salesOperations){await assert.rejects(f.service.run(op),e=>e.status===401);await assert.rejects(f.service.run(op,{},paired),e=>e.status===403);}const handler=shopHandler(f.service);for(const op of ['sales-document','order-pdf']){const req=cookie=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({id:q.id,kind:'quote'})});assert.equal((await handler(req(''))).status,401);assert.equal((await handler(req('cutsheet_shop='+paired.shop))).status,403);}});
@@ -37,16 +39,25 @@ test('decimal dimensions survive quote storage and order conversion with cent-ac
   assert.deepEqual(order.openings,[item]);
 });
 
-test('order release keeps exact manufacturing inputs, is retry-safe and does not expose contact notes or pricing',async t=>{const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});const {job}=await f.run('order-release',{id:order.id,version:order.version,targetMinutes:90,due:'2026-12-10'});assert.deepEqual(job.openings[0].input,opening);assert.deepEqual(job.openings[0].result,calculate(opening));assert.equal(job.number,order.number);assert.equal(job.targetMinutes,90);assert.equal((await f.run('order-release',{id:order.id,version:order.version})).job.id,job.id);const {code}=await f.run('pairing',{name:'Saw'}),shop={shop:(await f.service.run('pair',{code})).token};const shopData=JSON.stringify(await f.service.run('jobs',{},shop));assert.ok(!shopData.includes(contact.email));assert.ok(!shopData.includes('PRIVATE'));assert.ok(!shopData.includes('unitPrices'));assert.ok(!shopData.includes('Customer quote note'));});
+test('confirmed order release keeps inputs, is retry-safe and excludes private information',async t=>{
+ const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ await confirmForProduction(f,order);
+ const released=(await f.run('job-get',{id:order.id})).job;
+ const {job}=await f.run('plan',{id:released.id,version:released.version,targetMinutes:90,due:'2026-12-10'});
+ assert.deepEqual(job.openings[0].input,opening);assert.deepEqual(job.openings[0].result,calculate(opening));assert.equal(job.number,order.number);assert.equal(job.targetMinutes,90);
+ assert.equal((await f.run('order-release',{id:order.id,version:order.version})).job.id,job.id);
+ const {code}=await f.run('pairing',{name:'Saw'}),shop={shop:(await f.service.run('pair',{code})).token};const shopData=JSON.stringify(await f.service.run('jobs',{},shop));
+ for(const value of [contact.email,'PRIVATE','unitPrices','Customer quote note'])assert.ok(!shopData.includes(value));
+});
 
 test('T-post quote conversion preserves section measurements, split mode and original cut outputs',async t=>{
   const f=await fixture(t),items=printedReferences.filter(r=>r.opening.tposts).map(r=>({...r.opening,id:r.id.replaceAll('.','-')}));
-  const q=await quote(f,{items}),{order}=await f.run('quote-convert',{id:q.id,version:q.version}),{job}=await f.run('order-release',{id:order.id,version:order.version});
+  const q=await quote(f,{items}),{order}=await f.run('quote-convert',{id:q.id,version:q.version});await confirmForProduction(f,order);const {job}=await f.run('order-release',{id:order.id,version:order.version});
   for(const [i,o]of items.entries()){assert.deepEqual(job.openings[i].input,o);assert.deepEqual(job.openings[i].result,calculate(o));}
   const detail=await f.run('sales-get',{kind:'order',id:order.id});assert.deepEqual(detail.previews,items.map(o=>calculate(o).louverLayout));
 });
 
-test('unpriced or empty quotes cannot become orders, and unsafe cuts still cannot enter production',async t=>{const f=await fixture(t),q=await quote(f,{priced:false});await assert.rejects(f.run('quote-convert',{id:q.id,version:q.version}),/price every opening/);await f.run('pricing-save',{version:0,rateCents:2500,minimumAreaHundredths:0});const {quote:q2}=await f.run('quote-save',{id:q.id,version:q.version,fields:{useCurrentPricing:true,openings:[{...opening,height:60}]}});const {order}=await f.run('quote-convert',{id:q.id,version:q2.version});await assert.rejects(f.run('order-release',{id:order.id,version:order.version}),/light gap/);assert.equal((await f.run('dashboard')).jobs.length,0);});
+test('unpriced or empty quotes cannot become orders, and unsafe cuts still cannot enter production',async t=>{const f=await fixture(t),q=await quote(f,{priced:false});await assert.rejects(f.run('quote-convert',{id:q.id,version:q.version}),/price every opening/);await f.run('pricing-save',{version:0,rateCents:2500,minimumAreaHundredths:0});const {quote:q2}=await f.run('quote-save',{id:q.id,version:q.version,fields:{useCurrentPricing:true,openings:[{...opening,height:60}]}});const {order}=await f.run('quote-convert',{id:q.id,version:q2.version});const confirmed=await confirmForProduction(f,order);await assert.rejects(f.run('order-release',{id:order.id,version:confirmed.version}),/light gap/);assert.equal((await f.run('dashboard')).jobs.length,0);});
 
 test('stale updates, invalid prices and prototype identifiers fail without changing saved data',async t=>{const f=await fixture(t),q=await quote(f);await assert.rejects(f.run('quote-save',{id:q.id,version:1,fields:{name:'Old update'}}),e=>e.status===409);await assert.rejects(f.run('contact-save',{id:'contact-1',version:0,fields:contact}),e=>e.status===409);for(const id of ['__proto__','constructor','prototype'])await assert.rejects(f.run('sales-get',{kind:'quote',id}),e=>e.status===400);for(const fields of [{taxBasisPoints:10001},{discountCents:99999999},{installationCents:-10},{unitPrices:{'opening-1':1.23}},{openings:[opening,opening]},{validUntil:'2026-02-31'}])await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields}));assert.equal((await f.run('sales-get',{kind:'quote',id:q.id})).record.version,q.version);});
 
@@ -60,6 +71,7 @@ test('new orders wait on the owner board and track shop production without dupli
   assert.equal((await f.run('sales')).orders[0].productionStage,'waiting');
   const {code}=await f.run('pairing',{name:'Shop'}),shop={shop:(await f.service.run('pair',{code})).token};
   assert.equal((await f.service.run('jobs',{},shop)).pendingOrders[0].readiness.status,'confirmation');
+  await confirmForProduction(f,order);
   let {job:j}=await f.run('order-release',{id:order.id,version:order.version});
   assert.equal((await f.run('dashboard')).pendingOrders.length,0);
   assert.equal((await f.run('dashboard')).jobs.length,1);
@@ -172,6 +184,7 @@ test('untagged saved quotes and orders remain ShutterSmart with unchanged cut ou
   const second=createShopService({store:fileStore(f.path),password,secret}),run=(op,data)=>second.run(op,data,f.owner);
   assert.equal((await run('sales-get',{kind:'quote',id:q.id})).record.productId,'shuttersmart');
   assert.equal((await run('sales')).orders[0].productId,'shuttersmart');
+  await confirmForProduction(f,order);
   const {job}=await run('order-release',{id:order.id,version:order.version});assert.equal(job.productId,'shuttersmart');assert.deepEqual(job.openings[0].result,calculate(opening));
 });
 
@@ -250,6 +263,7 @@ test('mixed sold orders preserve every line but cut PDFs and shop jobs contain o
     const response=await handler(request(op,data));assert.equal(response.status,200);
     const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);
   }
+  await confirmForProduction(f,order);
   const {job}=await f.run('order-release',{id:order.id,version:order.version});
   assert.equal(job.openings.length,1);assert.deepEqual(job.openings[0].result,calculate(ss));
   assert.ok(!JSON.stringify(job).includes('Elegant only'));assert.ok(!JSON.stringify(job).includes('pricing'));
@@ -268,8 +282,9 @@ test('legacy nonmanufacturing quotes can add ShutterSmart without converting the
   const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
   assert.equal(order.productId,'elegant-shutters');assert.equal(orderJob(order).productId,'shuttersmart');
   assert.equal(orderJob(order).openings.length,1);
-  // Even a raw publish request must take the accepted order's filtered specifications.
-  const {job}=await f.run('publish',{job:{id:order.id,productId:'shuttersmart',name:'Forged',number:'Forged',openings:[{...opening,id:'forged',width:12}]}});
+  // A raw publish cannot bypass sale confirmation or replace the sold specifications.
+  await assert.rejects(f.run('publish',{job:{id:order.id,productId:'shuttersmart',name:'Forged',number:'Forged',finance:{confirmedAt:1},openings:[{...opening,id:'forged',width:12}]}}),/Confirm the order sale total/);
+  await confirmForProduction(f,order);const {job}=await f.run('job-get',{id:order.id});
   assert.equal(job.number,order.number);assert.equal(job.openings[0].input.id,opening.id);assert.equal(job.openings[0].input.width,36);
   assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).record.openings.length,2);
 });
@@ -376,4 +391,31 @@ test('digital sheet switches from held preview to released progress and paired w
  const response=await handler(request('cutsheet_shop='+shop.shop));assert.equal(response.status,200);
  const pdf=await PDFDocument.load(await response.arrayBuffer());assert.equal(pdf.getPageCount(),1);assert.equal(pdf.getPage(0).getWidth(),612);
  assert.deepEqual((await f.run('job-get',{id:order.id})).job.openings[0].input,opening);
+});
+
+
+test('all order release routes require server-side sale confirmation and failed attempts leave financials untouched',async t=>{
+ const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version}),handler=shopHandler(f.service);
+ for(const [op,data] of [['order-release',{id:order.id,version:order.version,finance:{confirmedAt:1}}],['publish',{job:{...order,finance:{confirmedAt:1,saleTotalCents:1}}}]]){
+  const response=await handler(new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify(data)}));
+  assert.equal(response.status,422);assert.match((await response.json()).error,/Confirm the order sale total/);
+ }
+ assert.equal((await f.run('jobs')).jobs.length,0);
+ assert.equal((await f.run('sales-get',{kind:'order',id:order.id})).record.version,order.version);
+ assert.deepEqual((await f.run('sales')).financials,{soldCents:0,receivedCents:0,balanceCents:0,needsPricing:1});
+ await confirmForProduction(f,order);
+ assert.equal((await f.run('jobs')).jobs.length,1);assert.equal((await f.run('sales')).financials.soldCents,quoteTotals(order).total);
+ assert.equal((await f.run('order-release',{id:order.id,version:order.version})).job.id,order.id);
+});
+
+
+test('blank measurements never produce a zero-dollar or minimum-area quote price',async()=>{
+ const {openingPrice}=await import('../public/quote-pricing.js'),{measurementInput,hasMeasurements}=await import('../public/measurements.js');
+ for(const value of [null,undefined,''])assert.equal(measurementInput(value),'');
+ for(const value of [null,undefined,0,NaN]){
+  const o={...opening,width:value};assert.equal(hasMeasurements(o),false);
+  const p=openingPrice(o,{pricing:{rateCents:2500,minimumAreaHundredths:2000},unitPrices:{[o.id]:12345}});
+  assert.equal(p.unitPrice,null);assert.equal(p.lineTotal,null);
+ }
+ assert.equal(hasMeasurements(opening),true);
 });

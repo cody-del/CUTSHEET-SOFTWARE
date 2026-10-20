@@ -28,7 +28,10 @@ function updateCompletion(job,time){
 function releaseJob(state,data,a,time){
   let input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
-  if(state.orders?.[id])input=orderJob(state.orders[id]);
+  if(state.orders?.[id]){
+    const order=state.orders[id];input=orderJob(order);
+    if(!order.finance?.confirmedAt)fail(422,'Confirm the order sale total and payment before sending it to Production.');
+  }
   else if(state.drafts?.[id]){const draft=state.drafts[id];if(draft.archived)fail(400,'Restore this draft before releasing it to the shop.');if(data.job.version!==draft.version)fail(409,'This draft changed on another device. Reload it before releasing.');input={id:draft.id,productId:'shuttersmart',name:draft.name,number:draft.number,notes:draft.notes,due:draft.due,openings:structuredClone(draft.openings)};}
   else if(state.quotes?.[id]){if(!hasManufacturingLines(state.quotes[id]))fail(422,CUT_SHEETS_ONLY);fail(422,'Mark the quote sold before sending its ShutterSmart lines to the shop.');}
   if(!input.openings.length)fail(400,'Add an opening before releasing this job.');
