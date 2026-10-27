@@ -6,10 +6,10 @@ import {shopRequest,cachedShop,warmWorkspace} from './shop-client.js';
 import {progress,elapsed,schedule,duration,productionStages,productionChecks,production,openingCheckStatus,openingProduction,openingProgress,completedOpenings} from './shop-state.js';
 import {drawingSVG} from './layouts.js';
 import {cutSheetFacts,cutSheetNotes,machiningLabel,firstLouverHole} from './cut-sheet.js';
-import {loadLogo} from './branding.js';
+import {appBrand} from './branding.js';
 
 const $=s=>document.querySelector(s),h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const mode=document.body.dataset.workshop,owner=mode==='owner',logo=loadLogo();
+const mode=document.body.dataset.workshop,owner=mode==='owner';
 let heldSheet=null,detailError='';
 const isOwner=()=>session?.role==='owner';
 let session=null,jobs=[],devices=[],pendingOrders=[],selected=new URLSearchParams(location.search).get('job'),filter=new URLSearchParams(location.search).get('filter')||sessionValue('production-filter:'+mode,'all'),connectionError='',busy=false,offset=0,loaded=false,lastSync=0,lastPreload=0,refreshing=null,scheduleKey='';
@@ -25,7 +25,7 @@ const statusBadge=job=>{const stage=job.held?productionStages[0]:production(job)
 const dateLabel=value=>value?new Date(value+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'}):'No target date';
 function notify(message){$('#toast').textContent=message;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),5000);}
 const deviceSettings=()=>isOwner()&&new URLSearchParams(location.search).get('settings')==='devices';
-function header(){if(isOwner())return workspaceNav(deviceSettings()?'settings':'production',connectionError?'Connection interrupted':session?.local?'Local preview':'Shared workspace');document.body.classList.remove('owner-workspace');return `<header class="app-header"><a class="wordmark" href="/shop.html">${logo?`<img class="brand-logo" src="${h(logo.data)}" alt="Company logo">`:'Production'}</a><span class="shop-connection" role="status">${connectionError?'Connection interrupted':loaded?'Connected':'Connecting…'}</span></header>`;}
+function header(){if(isOwner())return workspaceNav(deviceSettings()?'settings':'production',connectionError?'Connection interrupted':session?.local?'Local preview':'Shared workspace');document.body.classList.remove('owner-workspace');return `<header class="app-header"><a class="wordmark" href="/shop.html"><img class="brand-logo" src="${appBrand.logo}" alt="${h(appBrand.name)}" width="250" height="250"></a><span class="shop-connection" role="status">${connectionError?'Connection interrupted':loaded?'Connected':'Connecting…'}</span></header>`;}
 
 function devicesPage(){return `<a class="workspace-back" href="/settings.html">← Settings</a><div class="page-heading"><div><h1>Shop devices</h1></div></div>${session.publicOwnerAccess?'<section class="workspace-panel"><div class="workspace-empty"><h2>Shop access is public</h2><p>Open Production on the iPad. No connection code is needed while public access is enabled.</p><a class="btn primary" href="/owner.html">Open Production →</a></div></section>':`<button class="btn primary" data-action="pairing">Connect shop iPad</button>${devicePanel()}`}`;}
 function render(){

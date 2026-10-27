@@ -1,4 +1,7 @@
 import {accountStorage} from './account-storage.js';
+// App identity is bundled with the site so every device shows the same brand.
+// Uploaded company logos remain available for proposals and order PDFs.
+export const appBrand={name:'5-Day Plantation Shutters',logo:'/assets/5-day-logo.png'};
 const BRANDING_KEY='cut-sheet-branding-v1';
 const MAX_DATA_LENGTH=1200000;
 export function loadLogo(storage=accountStorage){

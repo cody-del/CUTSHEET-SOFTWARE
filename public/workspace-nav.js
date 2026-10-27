@@ -1,5 +1,5 @@
 import './display-preferences.js';
-import {loadLogo} from './branding.js';
+import {appBrand} from './branding.js';
 import {cachedShop,shopRequest} from './shop-client.js';
 export const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const h=escapeHTML;
@@ -32,8 +32,8 @@ globalThis.document?.addEventListener('click',event=>{
 });
 globalThis.addEventListener?.('storage',event=>{if(event.key===sidebarKey){sidebarCollapsed=event.newValue==='true';applySidebarPreference();}});
 export function workspaceNav(active,status='Shared workspace'){
- document.body.classList.add('owner-workspace');applySidebarPreference();const logo=loadLogo(),toggleLabel=sidebarCollapsed?'Expand menu':'Collapse menu';
- return `<a class="skip-link" href="#main-content">Skip to content</a><aside class="workspace-nav"><div class="workspace-nav-heading"><a class="workspace-brand" href="/" aria-label="Home" title="Home">${logo?`<img src="${h(logo.data)}" alt="Company logo">`:navIcon('brand')+'<span class="workspace-brand-name">Cut Sheets</span>'}</a><button type="button" class="workspace-nav-toggle" data-sidebar-toggle aria-controls="workspace-main-nav" aria-expanded="${!sidebarCollapsed}" aria-label="${toggleLabel}" title="${toggleLabel}">${navIcon('toggle')}<span class="workspace-nav-label">${toggleLabel}</span></button></div><nav id="workspace-main-nav" aria-label="Main navigation">${destinations.map(([key,label,url])=>`<a href="${url}" title="${label}" ${key===active?'class="selected" aria-current="page"':''}>${navIcon(key)}<span class="workspace-nav-label">${label}</span></a>`).join('')}</nav><div class="workspace-nav-foot"><span id="save-state" role="status">${h(status)}</span><span data-workspace-sync></span><a class="workspace-sign-out" href="/auth.html?mode=logout" title="Sign out">${navIcon('logout')}<span class="workspace-nav-label">Sign out</span></a></div></aside>`;
+ document.body.classList.add('owner-workspace');applySidebarPreference();const toggleLabel=sidebarCollapsed?'Expand menu':'Collapse menu';
+ return `<a class="skip-link" href="#main-content">Skip to content</a><aside class="workspace-nav"><div class="workspace-nav-heading"><a class="workspace-brand" href="/" aria-label="Home" title="Home"><img src="${appBrand.logo}" alt="${h(appBrand.name)}" width="250" height="250"></a><button type="button" class="workspace-nav-toggle" data-sidebar-toggle aria-controls="workspace-main-nav" aria-expanded="${!sidebarCollapsed}" aria-label="${toggleLabel}" title="${toggleLabel}">${navIcon('toggle')}<span class="workspace-nav-label">${toggleLabel}</span></button></div><nav id="workspace-main-nav" aria-label="Main navigation">${destinations.map(([key,label,url])=>`<a href="${url}" title="${label}" ${key===active?'class="selected" aria-current="page"':''}>${navIcon(key)}<span class="workspace-nav-label">${label}</span></a>`).join('')}</nav><div class="workspace-nav-foot"><span id="save-state" role="status">${h(status)}</span><span data-workspace-sync></span><a class="workspace-sign-out" href="/auth.html?mode=logout" title="Sign out">${navIcon('logout')}<span class="workspace-nav-label">Sign out</span></a></div></aside>`;
 }
 // Fetch a likely next screen on hover or keyboard focus, without navigating or writing.
 const prefetchedPages=new Set();
