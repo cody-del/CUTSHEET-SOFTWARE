@@ -27,20 +27,47 @@ export function stageStatus(job,key){
   const statuses=['louvers-capped','stiles-capped'].map(key=>checkStatus(job,key));
   return statuses.every(s=>s==='complete')?'complete':statuses.some(s=>s!=='not-started')?'partial':'not-started';
 }
+function cuttingStarted(job){
+  return !!(job.cuttingStartedAt||job.startedAt||job.elapsedMs||job.completedAt||
+    job.openings.some(o=>o.lines.some(l=>l.status==='partial'||l.completed>0)));
+}
+function openingPhase(job,opening){
+  const scoped={...job,openings:[opening]},cut=progress(scoped);
+  const statuses=finishingStages.map(stage=>stageStatus(scoped,stage.key));
+  if(cut.complete&&statuses.every(status=>status==='complete'))return productionStages.at(-1);
+  // Follow finishing work that is actually in progress, even while cuts remain.
+  // Completed work in one opening must not advance an untouched opening.
+  const active=statuses.reduce((last,status,index)=>status==='partial'?index:last,-1);
+  if(active>=0)return finishingStages[active];
+  if(cut.complete||statuses.some(status=>status==='complete')){
+    const next=statuses.findIndex(status=>status!=='complete');
+    if(next>=0)return finishingStages[next];
+  }
+  return productionStages[cuttingStarted({...scoped,cuttingStartedAt:null,startedAt:null,elapsedMs:0,completedAt:null})||statuses.some(status=>status!=='not-started')?1:0];
+}
 export function production(job) {
   if(!job)return productionStages[0];
-  const p=progress(job);
-  if(!p.complete){
-    const started=job.cuttingStartedAt||job.startedAt||job.elapsedMs||job.completedAt||
-      job.openings.some(o=>o.lines.some(l=>l.status==='partial'||l.completed>0))||
-      productionChecks.some(check=>checkStatus(job,check.key)!=='not-started');
-    return productionStages[started?1:0];
-  }
-  return finishingStages.find(stage=>stageStatus(job,stage.key)!=='complete')||productionStages.at(-1);
+  const p=progress(job),hasFinishing=productionChecks.some(check=>checkStatus(job,check.key)!=='not-started');
+  if(!hasFinishing)return productionStages[p.complete?2:cuttingStarted(job)?1:0];
+  const unfinished=job.openings.map(opening=>openingPhase(job,opening)).filter(stage=>stage.key!=='complete');
+  if(!unfinished.length&&p.complete)return productionStages.at(-1);
+  const active=unfinished.reduce((latest,stage)=>productionStages.indexOf(stage)>productionStages.indexOf(latest)?stage:latest,productionStages[0]);
+  return active.key==='waiting'?productionStages[1]:active;
 }
-export function openingProduction(job,opening){
-  // A job timer alone does not mean every opening has started.
-  return production({...job,openings:[opening],cuttingStartedAt:null,startedAt:null,elapsedMs:0,completedAt:null});
+export function openingProduction(job,opening){return openingPhase(job,opening);}
+export function productionStageStatus(job,key){
+  if(key==='waiting')return production(job).key==='waiting'?'not-started':'complete';
+  if(key==='complete')return production(job).key==='complete'?'complete':'not-started';
+  if(key==='cutting')return progress(job).complete?'complete':cuttingStarted(job)?'partial':'not-started';
+  return stageStatus(job,key);
+}
+// A job appears in its current column and in earlier columns with unfinished work.
+// These are views of the same job, never duplicate production records.
+export function productionColumns(job){
+  const active=production(job),index=productionStages.indexOf(active);
+  if(active.key==='complete')return ['complete'];
+  return productionStages.filter((stage,i)=>stage.key===active.key||
+    (i>0&&i<index&&productionStageStatus(job,stage.key)!=='complete')).map(stage=>stage.key);
 }
 export const openingProgress=opening=>progress({openings:[opening]});
 export const completedOpenings=job=>job.openings.filter(opening=>openingProduction(job,opening).key==='complete').length;

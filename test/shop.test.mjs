@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileStore} from '../shop-store.mjs';
 import {createShopService} from '../shop-service.mjs';
 import {shopHandler} from '../shop-api.mjs';
-import {progress,elapsed,schedule,duration,production,productionChecks,checkStatus,stageStatus,openingCheckStatus,openingProduction,completedOpenings} from '../public/shop-state.js';
+import {progress,elapsed,schedule,duration,production,productionChecks,checkStatus,stageStatus,productionStageStatus,productionColumns,openingCheckStatus,openingProduction,completedOpenings} from '../public/shop-state.js';
 import {calculate} from '../calculations.mjs';
 
 const opening={id:'opening-1',name:'Front window',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
@@ -268,7 +268,7 @@ test('parallel finishing and further partial cuts preserve recorded work without
   await run('stage',{stage:'louvers-capped',status:'partial'});
   await run('stage',{stage:'boring',status:'complete'});
   await run('stage',{stage:'stiles-capped',status:'complete'});
-  assert.equal(stageStatus(j,'capping'),'partial');assert.equal(production(j).key,'cutting');
+  assert.equal(stageStatus(j,'capping'),'partial');assert.equal(production(j).key,'capping');
   await run('line',{lineId,status:'partial',completed:5,outOfMaterial:true,note:'Need stock'});
   assert.equal(checkStatus(j,'louvers-capped'),'partial');assert.equal(checkStatus(j,'boring'),'complete');
   assert.equal(checkStatus(j,'stiles-capped'),'complete');assert.equal(progress(j).alerts.length,1);
@@ -372,4 +372,55 @@ test('opening overrides preserve legacy whole-job checks and require every unit 
   // Whole-job actions from older tabs deliberately update every opening.
   ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:'capping',status:'not-started'}));
   for(const o of j.openings)assert.equal(openingCheckStatus(j,o,'louvers-capped'),'not-started');
+});
+
+
+test('material shortages and partial cutting remain visible while capping advances',async t=>{
+  const f=await fixture(t,{local:false}),owner=await ownerCookie(f.service),shop=await paired(f.service,owner);
+  let {job:j}=await f.service.run('publish',{job},owner);
+  const run=async(operation,data)=>{({job:j}=await f.service.run(operation,{id:j.id,version:j.version,...data},shop));};
+  await run('timer',{action:'start'});f.advance(60000);
+  const louver=j.openings[0].lines.find(line=>line.name==='Louvers');
+  await run('line',{lineId:louver.id,status:'partial',completed:5,outOfMaterial:true,note:'Need louver stock'});
+  const remaining=progress(j).total-progress(j).done;
+  await run('stage',{openingId:opening.id,stage:'louvers-capped',status:'partial'});
+  assert.equal(production(j).key,'capping');
+  assert.deepEqual(productionColumns(j),['cutting','capping']);
+  assert.equal(productionStageStatus(j,'cutting'),'partial');
+  assert.equal(productionStageStatus(j,'capping'),'partial');
+  assert.equal(progress(j).total-progress(j).done,remaining);
+  assert.equal(progress(j).alerts.length,1);assert.equal(j.startedAt,null);
+  assert.equal(j.productionCompletedAt,null);assert.equal(completedOpenings(j),0);
+  const reloaded=(await createShopService({store:fileStore(f.path),password,secret,now:f.time}).run('job-get',{id:j.id},shop)).job;
+  assert.equal(production(reloaded).key,'capping');assert.deepEqual(productionColumns(reloaded),['cutting','capping']);
+  assert.equal(progress(reloaded).alerts[0].shortage.note,'Need louver stock');
+  await run('stage',{stage:'boring',status:'partial'});
+  assert.equal(production(j).key,'boring');assert.deepEqual(productionColumns(j),['cutting','capping','boring']);
+  await run('stage',{stage:'boring',status:'not-started'});
+  assert.equal(production(j).key,'capping');
+  for(const key of ['louvers-capped','stiles-capped'])await run('stage',{stage:key,status:'complete'});
+  assert.equal(production(j).key,'boring');assert.deepEqual(productionColumns(j),['cutting','boring']);
+  for(const line of j.openings[0].lines)await run('line',{lineId:line.id,status:'cut'});
+  assert.deepEqual(productionColumns(j),['boring']);assert.equal(progress(j).alerts.length,0);
+  for(const key of ['boring','building','hinging'])await run('stage',{stage:key,status:'complete'});
+  assert.equal(production(j).key,'complete');assert.deepEqual(productionColumns(j),['complete']);
+  assert.equal(completedOpenings(j),1);assert.equal(j.productionCompletedAt,f.time());
+});
+
+test('overlapping openings keep untouched work and corrected cuts in the pipeline',async t=>{
+  const f=await fixture(t);let {job:j}=await f.service.run('publish',{job:{...job,openings:[opening,{...opening,id:'opening-2'}]}});
+  const run=async(operation,data)=>{({job:j}=await f.service.run(operation,{id:j.id,version:j.version,...data}));};
+  for(const line of j.openings[0].lines)await run('line',{lineId:line.id,status:'cut'});
+  await run('stage',{openingId:opening.id,stage:'louvers-capped',status:'partial'});
+  assert.equal(production(j).key,'capping');assert.deepEqual(productionColumns(j),['cutting','capping']);
+  assert.equal(openingProduction(j,j.openings[1]).key,'waiting');
+  for(const check of productionChecks)await run('stage',{openingId:opening.id,stage:check.key,status:'complete'});
+  assert.equal(production(j).key,'cutting');assert.equal(completedOpenings(j),1);
+  assert.deepEqual(productionColumns(j),['cutting']);
+  for(const line of j.openings[1].lines)await run('line',{lineId:line.id,status:'cut'});
+  await run('stage',{openingId:'opening-2',stage:'louvers-capped',status:'partial'});
+  const lineId=j.openings[1].lines[0].id;
+  await run('line',{lineId,status:'not-cut'});
+  assert.equal(production(j).key,'capping');assert.deepEqual(productionColumns(j),['cutting','capping']);
+  assert.equal(productionStageStatus(j,'cutting'),'partial');assert.equal(j.productionCompletedAt,null);
 });
