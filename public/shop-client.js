@@ -1,6 +1,8 @@
 // Display snapshots only. Every write still goes to the server with its version.
 import {saveLogo} from './branding.js';
 import {accountFetch} from './account-storage.js';
+// Finish account/role validation before reading any cached owner responses.
+import './auth-guard.js';
 const READS=new Set(['company-get','session','sales','workspace','dashboard','jobs','sales-get','draft-get','job-get']);
 const AUTH=new Set(['login','logout','pair']);
 const KEY='cutsheet-read-cache-v2',REVISION='cutsheet-cache-revision-v1';

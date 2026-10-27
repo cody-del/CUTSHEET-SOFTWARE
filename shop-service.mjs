@@ -5,6 +5,7 @@ import {calculate,ValidationError} from './calculations.mjs';
 import {salesOperations,runSales,orderJob} from './sales-service.mjs';
 import {progress,production,productionChecks,openingCheckStatus,openingProduction} from './public/shop-state.js';
 import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
+import {workerResponse} from './worker-view.mjs';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
 const equal=(a,b)=>timingSafeEqual(Buffer.from(hash(a)),Buffer.from(hash(b)));
@@ -76,7 +77,9 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
     configured,
     async run(operation,data={},cookie={}) {
       if(!configured){if(operation==='session')return {configured:false,role:null,local,setupIssues};fail(503,'Shared shop storage is not connected yet.');}
-      return store.transaction(async state=>{
+      let worker=false;
+      const response=await store.transaction(async state=>{
+        worker=actor(state,cookie)?.role==='shop';
         const time=now();
         // Prune expired connection codes and old rate-limit buckets.
         for(const [key,value]of Object.entries(state.pairings))if(value.expires<time)delete state.pairings[key];
@@ -193,6 +196,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         }
         fail(404,'Unknown shop action.');
       });
+      return worker?workerResponse(response):response;
     }
   };
 }

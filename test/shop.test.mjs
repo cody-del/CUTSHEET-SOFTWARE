@@ -21,6 +21,35 @@ async function fixture(t,{local=true,publicOwnerAccess=false}={}){
 const ownerCookie=async service=>({owner:(await service.run('login',{password})).token});
 async function paired(service,cookie){const {code}=await service.run('pairing',{name:'Saw iPad'},cookie);return {shop:(await service.run('pair',{code})).token};}
 
+test('worker reads and writes expose manufacturing only, including held orders and nested T-post data',async t=>{
+  const f=await fixture(t,{local:false}),owner=await ownerCookie(f.service),shop=await paired(f.service,owner);
+  const privateValue='PRIVATE_CUSTOMER_555_EMAIL_PRICE';
+  const tposts={positions:[36],sections:[{left:1,right:1,price:privateValue},{left:1,right:1}],construction:'two-piece',customer:privateValue};
+  const input={...opening,width:72,tposts,pricing:{unitPrice:privateValue},customer:privateValue,customerNotes:privateValue,notes:'Fit hinges on the left'};
+  await f.service.run('publish',{job:{...job,name:privateValue,notes:'Pack each opening separately',openings:[input]}},owner);
+  await fileStore(f.path).transaction(state=>{
+    state.jobs[job.id].activity[0].by=privateValue;
+    state.jobs[job.id].finance={total:privateValue};
+    state.orders??={};state.orders.held={id:'held',number:'O-002',name:privateValue,customer:{firstName:privateValue},productId:'shuttersmart',openings:[input],version:1};
+  });
+  const safe=value=>assert.ok(!JSON.stringify(value).includes(privateValue));
+  safe(await f.service.run('jobs',{},shop));
+  let {job:j}=await f.service.run('job-get',{id:job.id},shop);safe(j);
+  assert.equal(j.notes,'Pack each opening separately');assert.equal(j.openings[0].input.notes,'Fit hinges on the left');
+  assert.equal(j.name,'Job TEST-001');assert.equal(j.openings[0].input.name,opening.name);
+  assert.deepEqual(j.openings[0].result.louverLayout,calculate(input).louverLayout);
+  assert.deepEqual(j.openings[0].lines.map(l=>[l.name,l.length,l.quantity]),calculate(input).parts.map(l=>[l.name,l.length,l.quantity]));
+  for(const [operation,data]of [['timer',{action:'start'}],['line',{lineId:j.openings[0].lines[0].id,status:'partial',completed:1,outOfMaterial:true,note:'Need louver stock'}],['stage',{stage:'louvers-capped',status:'complete',openingId:opening.id}]]){
+    ({job:j}=await f.service.run(operation,{id:j.id,version:j.version,...data},shop));safe(j);
+  }
+  assert.equal(j.openings[0].lines[0].shortage.note,'Need louver stock');
+  const held=(await f.service.run('job-get',{id:'held'},shop)).job;safe(held);
+  safe(await f.service.run('stage',{id:'held',version:held.version,stage:'boring',status:'partial'},shop));
+  const ownerView=(await f.service.run('job-get',{id:job.id},owner)).job;
+  assert.equal(ownerView.name,privateValue);assert.equal(ownerView.openings[0].input.customerNotes,privateValue);
+  assert.equal(ownerView.openings[0].production['louvers-capped'].by,'Saw iPad');
+});
+
 test('a light gap outside the shop limits cannot be released',async t=>{
   const {service}=await fixture(t);
   for(const height of [60,52.5])await assert.rejects(service.run('publish',{job:{...job,openings:[{...opening,height}]}}),/The light gap is not going to work/);
@@ -219,7 +248,8 @@ test('shop jobs advance through every production stage with separate manual cap 
     f.advance(60000);
     ({job:j}=await f.service.run('stage',{id:j.id,version:j.version,stage:check.key,status:'complete'},shop));
     assert.equal(production(j).key,productionChecks[index+1]?.stage||'complete');
-    assert.equal(j.production[check.key].by,'Saw iPad');assert.equal(j.production[check.key].completedAt,f.time());
+    assert.equal(j.production[check.key].by,undefined);assert.equal(j.production[check.key].completedAt,f.time());
+    assert.equal((await f.service.run('job-get',{id:j.id},owner)).job.production[check.key].by,'Saw iPad');
   }
   assert.equal(j.productionCompletedAt,f.time());
   const second=createShopService({store:fileStore(f.path),password,secret,now:f.time});

@@ -14,7 +14,7 @@ const secret='test-only-session-secret-at-least-thirty-two-characters',code='tes
 const token=sid=>'verified.'+Buffer.from(JSON.stringify({session_id:sid})).toString('base64url')+'.test';
 const contact={firstName:'Private',lastName:'Customer',address:'123 Example St',phone:'555-0100',email:'private@example.invalid',notes:'Account A only'};
 const opening={id:'opening-a',name:'Private opening',width:36,height:59.5,quantity:2,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
-async function fixture(t){
+async function fixture(t,{recoveryError=null}={}){
  const db=new PGlite();t.after(()=>db.close());
  await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE SCHEMA auth; CREATE SCHEMA vault;
  CREATE TABLE auth.users (id uuid PRIMARY KEY,email text,email_confirmed_at timestamptz);
@@ -38,7 +38,7 @@ async function fixture(t){
   signUp:async data=>{calls.push(['signup',data.email]);return {data:{user:{id:A},session:null}};},
   refreshSession:async()=>({data:{},error:{message:'Expired'}}),
   setSession:async()=>({data:{},error:null}),signOut:async()=>({error:null}),
-  resetPasswordForEmail:async()=>({error:null}),updateUser:async()=>({error:null})
+  resetPasswordForEmail:async()=>({error:recoveryError}),updateUser:async()=>({error:null})
  }});
  const auth=createAccountAuth({store,env:{CUTSHEET_SESSION_SECRET:secret},clientFactory,settingsFetch:async()=>({ok:true,json:async()=>({external:{email:true},mailer_autoconfirm:false})})});
  const api=accountShopHandler({store,auth,secret});
@@ -108,10 +108,13 @@ test('paired shop iPads stay within the account that issued their code and can b
  const paired=await f.run('pair',{code:pairing.value.code},null);assert.equal(paired.status,200);
  const cookie=paired.response.headers.getSetCookie().find(c=>c.startsWith('__Host-cutsheet-device=')&&!c.startsWith('__Host-cutsheet-device=;')).split(';')[0];
  const own={'cookie':cookie,'x-cutsheet-account':A};
+ assert.equal((await f.run('publish',{job:{id:'worker-job',name:'Private Customer',number:'O-001',notes:'Pack separately',openings:[{...opening,customerEmail:'private@example.invalid',customerPhone:'555-0100',pricing:{unitPrice:1234}}]}})).status,200);
  assert.equal((await f.run('session',undefined,null,own)).value.ownerId,A);
- assert.equal((await f.run('jobs',undefined,null,own)).status,200);
- assert.equal((await f.run('sales',undefined,null,own)).status,403);
- assert.equal((await f.run('workspace-backup',undefined,null,own)).status,403);
+ const list=await f.run('jobs',undefined,null,own);assert.equal(list.status,200);
+ for(const privateValue of ['Private Customer','private@example.invalid','555-0100','unitPrice','a@example.invalid'])assert.ok(!JSON.stringify(list.value).includes(privateValue));
+ for(const action of ['sales','workspace','company-get','dashboard','workspace-backup'])assert.equal((await f.run(action,undefined,null,own)).status,403);
+ for(const [action,data]of [['sales-get',{kind:'order',id:'worker-job'}],['sales-document',{kind:'order',id:'worker-job'}],['order-pdf',{id:'worker-job'}],['pairing',{name:'Forbidden'}],['revoke',{deviceId:'Forbidden'}]])assert.equal((await f.run(action,data,null,own)).status,403);
+ const workerPDF=await f.api.handler(f.req('job-pdf',{id:'worker-job'},null,own));assert.equal(workerPDF.status,200);assert.equal(workerPDF.headers.get('content-type'),'application/pdf');
  assert.equal((await f.run('jobs',undefined,null,{...own,'x-cutsheet-account':B})).status,409);
  assert.equal((await f.run('jobs',undefined,null,{...own,cookie:cookie+'tampered'})).status,401);
  const board=await f.run('dashboard');await f.run('revoke',{deviceId:board.value.devices[0].id});
@@ -120,4 +123,11 @@ test('paired shop iPads stay within the account that issued their code and can b
 
 test('deployed SQL is exactly the reviewed migration',async()=>{
  assert.equal(schema.sql,await readFile(new URL('../supabase/migrations/20261019125949_account_workspaces.sql',import.meta.url),'utf8'));
+});
+
+
+test('password-recovery delivery failures never claim an email was sent',async t=>{
+ const f=await fixture(t,{recoveryError:{code:'email_address_not_authorized'}});
+ const response=await f.auth.handle(new Request('https://example.test/api/auth/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'a@example.invalid'})}));
+ assert.equal(response.status,503);assert.match((await response.json()).error,/email is unavailable/);
 });

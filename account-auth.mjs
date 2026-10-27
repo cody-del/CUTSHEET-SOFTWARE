@@ -95,7 +95,8 @@ export function createAccountAuth({store,env=process.env,clientFactory=createCli
     const response=json(200,{ok:true});setTokens(response.headers,{access_token:data.accessToken,refresh_token:data.refreshToken});return response;
    }
    if(path==='recover'){
-    const email=emailInput(data);await sb.auth.resetPasswordForEmail(email,{redirectTo:new URL('/auth.html?mode=reset',request.url).href});
+    const email=emailInput(data);const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:new URL('/auth.html?mode=reset',request.url).href});
+    if(error)fail(503,'Password reset email is unavailable right now. Ask the account administrator to reset your password.');
     return json(200,{ok:true,message:'If an account exists, check your email for a password reset link.'});
    }
    if(path==='password'){

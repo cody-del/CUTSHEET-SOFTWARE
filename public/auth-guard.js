@@ -24,6 +24,10 @@ async function enter(){
   if(previous!==context)clearPrivateCache();
   sessionStorage.setItem('cutsheet-account-identity-v1',identity);sessionStorage.setItem('cutsheet-account-context-v1',context);
   if(!session.local)localStorage.setItem('cutsheet-active-account-v1',context);
+  // A paired iPad must never load owner pages or their browser-saved drafts.
+  if(session.role==='shop'&&location.pathname!=='/shop.html'){
+   hide();location.replace('/shop.html');return new Promise(()=>{});
+  }
   window.addEventListener('storage',e=>{if(e.key==='cutsheet-active-account-v1'&&e.newValue!==context){clearPrivateCache();redirect();}});
   window.addEventListener('pagehide',()=>{document.documentElement.style.visibility='hidden';});
   window.addEventListener('pageshow',async e=>{if(!e.persisted)return;try{const next=await validate();if(!next.role||JSON.stringify([next.local?'local':next.ownerId||next.id,next.role,next.id])!==context){redirect();return;}document.documentElement.style.visibility='';}catch{redirect();}});
