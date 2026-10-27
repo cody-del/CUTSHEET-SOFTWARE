@@ -1,11 +1,12 @@
 import {orderReadiness} from './order-manufacturing.mjs';
 import {createHash,randomUUID} from 'node:crypto';
-import {calculate} from './calculations.mjs';
+import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {SalesError} from './sales-service.mjs';
 import {supportsCutSheets,hasManufacturingLines,manufacturingOpenings,CUT_SHEETS_ONLY} from './public/products.js';
 import {production} from './public/shop-state.js';
+import {createWorkspaceBackup} from './workspace-backup.mjs';
 
-export const workspaceOperations=['workspace','draft-get','draft-save','draft-import','draft-release'];
+export const workspaceOperations=['workspace','workspace-backup','draft-get','draft-save','draft-import','draft-release'];
 const fail=(status,message)=>{throw new SalesError(status,message);};
 const identifier=value=>{if(typeof value!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(value)||['__proto__','constructor','prototype'].includes(value))fail(400,'Invalid draft identifier.');return value;};
 const text=(value,label,max=120)=>{if(typeof value!=='string'||value.length>max)fail(400,`Enter a valid ${label}.`);return value.trim();};
@@ -20,13 +21,14 @@ function fields(raw){
     const keys=['id','name','width','height','quantity','left','right','louver','frame','frameStyle','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts'];
     const o=Object.fromEntries(keys.filter(k=>item[k]!==undefined).map(k=>[k,structuredClone(item[k])]));
     o.name=text(o.name,'opening name',80);if(!o.name)fail(400,'Enter an opening name.');o.notes=text(o.notes||'','opening notes',1200);
-    calculate(o);return o;
+    Object.assign(o,validateOpening(o,{allowIncomplete:true}));if(completeOpening(o))calculate(o);return o;
   });
   const due=raw.due||'';if(due&&(!/^\d{4}-\d{2}-\d{2}$/.test(due)||!Number.isFinite(Date.parse(due+'T12:00:00Z'))||new Date(due+'T12:00:00Z').toISOString().slice(0,10)!==due))fail(400,'Enter a valid target date.');
   return {productId:'shuttersmart',name,number,customer:text(raw.customer||'','customer'),notes:text(raw.notes||'','shop notes',1200),due,archived:!!raw.archived,openings};
 }
 const fingerprint=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export async function runWorkspace(state,operation,data,time,publish){
+  if(operation==='workspace-backup')return createWorkspaceBackup(state,time);
   state.drafts??={};state.draftImports??={};
   const get=id=>{const draft=state.drafts[identifier(id)];if(!draft)fail(404,'This shared draft was not found.');return draft;};
   const current=(draft,version)=>{if(draft.version!==version)fail(409,'This draft changed on another device. Reload it before saving again.');};
@@ -46,7 +48,9 @@ export async function runWorkspace(state,operation,data,time,publish){
     const contactId=data.fields?.contactId??previous?.contactId??'';
     const contact=contactId?state.contacts?.[identifier(contactId)]:null;
     if(contactId&&!contact)fail(404,'Choose a contact from this workspace.');
-    const input=fields(data.fields);
+    const raw={...data.fields};
+    if(!previous&&!raw.number){state.draftCounter??=0;do{raw.number='CS-'+String(++state.draftCounter).padStart(4,'0');}while(Object.values(state.drafts).some(d=>d.number===raw.number));}
+    const input=fields(raw);
     if(contact)input.customer=[contact.firstName,contact.lastName].filter(Boolean).join(' ').slice(0,120);
     const draft={...previous,...input,contactId,id,createdAt:previous?.createdAt||time,updatedAt:time,version:(previous?.version||0)+1};
     state.drafts[id]=draft;return {draft};

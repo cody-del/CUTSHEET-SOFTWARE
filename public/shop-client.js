@@ -1,6 +1,7 @@
 // Display snapshots only. Every write still goes to the server with its version.
+import {saveLogo} from './branding.js';
 import {accountFetch} from './account-storage.js';
-const READS=new Set(['session','sales','workspace','dashboard','jobs','sales-get','draft-get','job-get']);
+const READS=new Set(['company-get','session','sales','workspace','dashboard','jobs','sales-get','draft-get','job-get']);
 const AUTH=new Set(['login','logout','pair']);
 const KEY='cutsheet-read-cache-v2',REVISION='cutsheet-cache-revision-v1';
 export const FRESH_MS=30000,DISPLAY_MS=5*60000;
@@ -73,5 +74,5 @@ export const shopRequest=client.request,cachedShop=client.peek;
 globalThis.window?.addEventListener('storage',e=>{if(e.key===REVISION)client.checkRevision();});
 export async function warmWorkspace(){
   if(cachedShop('session')?.role!=='owner')return;
-  await Promise.allSettled(['sales','dashboard','workspace'].map(action=>shopRequest(action)));
+  await Promise.allSettled([...['sales','dashboard','workspace'].map(action=>shopRequest(action)),shopRequest('company-get').then(({company})=>{if(company.version)try{saveLogo(company.logo);}catch{}})]);
 }

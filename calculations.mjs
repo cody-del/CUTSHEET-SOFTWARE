@@ -1,5 +1,5 @@
 import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
-import {FRAME_STYLES,frameStyle,frameNotice} from './public/frames.js';
+import {FRAME_STYLES,frameStyle,frameNotice,normalizeFrame} from './public/frames.js';
 import workbook from './source/workbook.json' with {type:'json'};
 import {WorkbookEngine} from './engine.mjs';
 export const VERSION='20170211FCNew / app 0.5';
@@ -19,10 +19,13 @@ const numeric=(v,name,min,max,integer=false)=>{if(typeof v!=='number'||!Number.i
 export const hasTposts=o=>o?.tposts!=null;
 export const panelCount=o=>hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.left+s.right,0):o.left+o.right;
 export const configuration=o=>hasTposts(o)?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
-export function validateOpening(o){
+export const completeOpening=o=>Number.isFinite(o?.width)&&Number.isFinite(o?.height)&&(!o.tposts||o.tposts.positions.every(Number.isFinite));
+export function validateOpening(o,{allowIncomplete=false}={}){
+  o=normalizeFrame(o);
   if(!o||typeof o!=='object')throw new ValidationError('An opening is required.');
   if(!supportsCutSheets(o))throw new ValidationError(CUT_SHEETS_ONLY);
-  numeric(o.width,'Width (inches)',1,hasTposts(o)?Number.MAX_SAFE_INTEGER:106);numeric(o.height,'Height (inches)',1,114);
+  if(!allowIncomplete||o.width!=null)numeric(o.width,'Width (inches)',1,hasTposts(o)?Number.MAX_SAFE_INTEGER:106);
+  if(!allowIncomplete||o.height!=null)numeric(o.height,'Height (inches)',1,114);
   numeric(o.quantity,'Quantity',1,100,true);
   if(hasTposts(o)){
     const t=o.tposts;
@@ -31,9 +34,10 @@ export function validateOpening(o){
     if(!Array.isArray(t.sections)||t.sections.length!==t.positions.length+1)throw new ValidationError('Each T-post opening needs one more section than posts.');
     let previous=0;
     for(const [i,position]of t.positions.entries()){
-      numeric(position,`T-post ${i+1} position (inches)`,0,o.width);
+      if(allowIncomplete&&position==null)continue;
+      numeric(position,`T-post ${i+1} position (inches)`,0,o.width??Number.MAX_SAFE_INTEGER);
       if(position<=previous)throw new ValidationError(`T-post ${i+1} must be farther right than ${i?`T-post ${i} (${previous} inches)`:'the left edge'}.`);
-      if(position>=o.width)throw new ValidationError(`T-post ${i+1} must lie inside the ${o.width}-inch opening.`);
+      if(o.width!=null&&position>=o.width)throw new ValidationError(`T-post ${i+1} must lie inside the ${o.width}-inch opening.`);
       previous=position;
     }
     for(const [i,section]of t.sections.entries()){
@@ -51,8 +55,8 @@ export function validateOpening(o){
   for(const [key,allowed]of Object.entries({mount:['I','O'],sizeMethod:['W','S','F'],sides:['4W','3W','3D'],color:['W','OW','SC'],tilt:['Smart','Front','Back'],stile:['Flat','Reg']}))if(!allowed.includes(o[key]))throw new ValidationError(`Invalid ${key}.`);
   if(o.sizeMethod==='F'&&o.mount!=='O')throw new ValidationError('Outside frame measurements require an outside mount.');
   if(o.divisionMode!==undefined&&!['divider','split'].includes(o.divisionMode))throw new ValidationError('Choose divider rail or split tilt rod mode.');
-  numeric(o.divider??0,'Divider position',0,o.height);
-  if(o.divider>=o.height)throw new ValidationError('The divider must be below the top of the opening.');
+  numeric(o.divider??0,'Divider position',0,o.height??Number.MAX_SAFE_INTEGER);
+  if(o.height!=null&&o.divider>=o.height)throw new ValidationError('The divider must be below the top of the opening.');
   if(clean(o.name).length>80||clean(o.notes).length>1200)throw new ValidationError('Opening name or notes are too long.');
   return o;
 }
@@ -79,7 +83,7 @@ function louverLayout(o,e){
     dividerFromBottom:o.divisionMode!=='split'&&o.divider>0&&Number.isFinite(center)?center:null,panelHeight};
 }
 export function calculate(o){
-  validateOpening(o);
+  o=validateOpening(o);
   if(frameNotice(o))return {parts:[],hinges:[],machining:[],warnings:[frameNotice(o)],reviewNotes:[],version:VERSION,status:'preview-only'};
   const e=openingEngine(o);
   if(hasTposts(o))return calculateTposts(o,e);

@@ -1,3 +1,4 @@
+import './display-preferences.js';
 import {clearPrivateCache} from './account-storage.js';
 const root=document.querySelector('#account-form'),params=new URLSearchParams(location.search);
 let mode=params.get('mode')||'login',busy=false;

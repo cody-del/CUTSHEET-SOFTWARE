@@ -34,7 +34,9 @@ test('release uses original calculations and freezes the cut sheet',async t=>{
   assert.equal(progress(released).percent,0);
   await assert.rejects(service.run('publish',{job:{...job,openings:[{...opening,width:40}]}}),/already in the shop/);
   assert.equal((await service.run('jobs')).jobs[0].openings[0].input.width,36);
-  await assert.rejects(service.run('publish',{job:{...job,id:'bad',openings:[{...opening,frameStyle:'MS'}]}}));
+  const {job:modern}=await service.run('publish',{job:{...job,id:'modern',openings:[{...opening,frame:'ST',frameStyle:'MS'}]}});
+  assert.deepEqual(modern.openings[0].result.parts,calculate({...opening,frame:'ST'}).parts);
+  assert.equal(modern.openings[0].input.frameStyle,'MS');
 });
 
 test('partial cuts synchronize quantity, alert and paused time across service instances',async t=>{

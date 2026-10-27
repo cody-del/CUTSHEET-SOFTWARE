@@ -7,7 +7,7 @@ export function loadLogo(storage=accountStorage){
 export function saveLogo(logo,storage=accountStorage){
   if(logo)storage.setItem(BRANDING_KEY,JSON.stringify(logo));else storage.removeItem(BRANDING_KEY);
 }
-export async function readLogoFile(file){
+export async function readLogoFile(file,{maxDataLength=MAX_DATA_LENGTH}={}){
   if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Choose a PNG, JPG, or WebP image.');
   if(file.size>5*1024*1024)throw new Error('Choose an image smaller than 5 MB.');
   let bitmap;
@@ -16,8 +16,9 @@ export async function readLogoFile(file){
     const scale=Math.min(1,640/bitmap.width,240/bitmap.height),canvas=document.createElement('canvas');
     canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
     const context=canvas.getContext('2d');context.drawImage(bitmap,0,0,canvas.width,canvas.height);
-    const data=canvas.toDataURL('image/png');
-    if(data.length>MAX_DATA_LENGTH)throw new Error('This logo is too detailed to save. Try a smaller image.');
+    let data=canvas.toDataURL('image/png');
+    while(data.length>maxDataLength&&canvas.width>64&&canvas.height>24){canvas.width=Math.max(1,Math.round(canvas.width*.8));canvas.height=Math.max(1,Math.round(canvas.height*.8));context.drawImage(bitmap,0,0,canvas.width,canvas.height);data=canvas.toDataURL('image/png');}
+    if(data.length>maxDataLength)throw new Error('This logo is too detailed to save. Try a smaller image.');
     return {data,name:file.name.slice(0,160)};
   }finally{bitmap.close();}
 }

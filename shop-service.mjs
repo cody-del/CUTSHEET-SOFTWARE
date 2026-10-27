@@ -1,4 +1,4 @@
-import {waitingShopOrders,heldOrderSheet} from './order-manufacturing.mjs';
+import {waitingShopOrders,heldOrderSheet,productionName} from './order-manufacturing.mjs';
 import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,ValidationError} from './calculations.mjs';
@@ -25,6 +25,7 @@ function updateCompletion(job,time){
   job.productionCompletedAt=production(job).key==='complete'?(job.productionCompletedAt||time):null;
 }
 
+function productionView(state,job){const source=state.orders?.[job.id]||state.drafts?.[job.id];return {...job,displayName:source?productionName(source):job.displayName||job.name};}
 function releaseJob(state,data,a,time){
   let input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
@@ -43,10 +44,10 @@ function releaseJob(state,data,a,time){
     text(o.name,'opening name',80);const result=calculate(o);
     if(result.warnings.length)fail(422,`${o.name}: ${result.warnings.join(' ')}`);
     if(!result.parts.length)fail(422,`${o.name} has no calculated cut lines.`);
-    return {input:structuredClone(o),result,lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
+    return {input:structuredClone(o),result,...(state.orders?.[id]?.finishingProgress?{production:structuredClone(state.orders[id].finishingProgress.openings?.[o.id]||{})}:{}),lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
   });
   const job={id,productId:productId(input),name:text(input.name,'job name',100),number:text(input.number,'job number'),notes:text(input.notes||'','shop notes',1200,false),
-    ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,cuttingStartedAt:null,production:{},productionCompletedAt:null,activity:[]};
+    ...plan({targetMinutes:data.targetMinutes,due:data.due||input.due}),openings,publishedAt:time,updatedAt:time,version:1,elapsedMs:0,startedAt:null,completedAt:null,cuttingStartedAt:null,production:structuredClone(state.orders?.[id]?.finishingProgress?.production||{}),productionCompletedAt:null,activity:structuredClone(state.orders?.[id]?.finishingProgress?.activity||[])};
   audit(job,a,'Sent to shop',time);state.jobs[id]=job;return {job};
 }
 
@@ -103,12 +104,12 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
         if(operation==='jobs'||operation==='dashboard'){
-          return {jobs:Object.values(state.jobs).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
+          return {jobs:Object.values(state.jobs).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
         }
         if(operation==='job-get'){
-          const id=identifier(data.id);if(state.jobs[id])return {job:state.jobs[id]};
+          const id=identifier(data.id);if(state.jobs[id])return {job:productionView(state,state.jobs[id])};
           const order=state.orders?.[id];if(!order||!hasManufacturingLines(order))fail(404,'This digital cut sheet was not found.');
           return {job:heldOrderSheet(order)};
         }
@@ -119,7 +120,10 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         }
         if(operation==='revoke'){const device=Object.values(state.devices).find(d=>d.id===data.deviceId);if(!device)fail(404,'Device not found.');device.revoked=true;return {ok:true};}
         if(operation==='publish')return releaseJob(state,data,a,time);
-        const job=jobFor(state,data);
+        const heldOrder=operation==='stage'&&!state.jobs[data.id]?state.orders?.[identifier(data.id)]:null;
+        if(heldOrder&&!hasManufacturingLines(heldOrder))fail(404,'This digital cut sheet was not found.');
+        if(heldOrder&&heldOrder.version!==data.version)fail(409,'This order changed on another device. Reload it before saving again.');
+        const job=heldOrder?heldOrderSheet(heldOrder):jobFor(state,data);
         if(operation==='plan'){Object.assign(job,plan(data));audit(job,a,'Updated cutting estimate and target date',time);return {job};}
         if(operation==='stage'){
           // Keep the former combined Capping action compatible with older tabs.
@@ -137,9 +141,13 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           // Requests from older tabs still mean the whole job; scoped updates
           // never change another opening's saved work.
           if(!opening){job.production??={};for(const key of keys)job.production[key]={status:data.status,updatedAt:time,completedAt:data.status==='complete'?time:null,by:a.name};if(stage.key==='capping')delete job.production.capping;}
-          if(data.status!=='not-started')job.cuttingStartedAt??=time;
+          if(!job.held&&data.status!=='not-started')job.cuttingStartedAt??=time;
           updateCompletion(job,time);
           audit(job,a,`${opening?opening.input.name+' · ':''}${stage.label}: ${data.status==='complete'?'complete':data.status==='partial'?'partial':'not started'} · ${production(job).label}`,time);
+          if(heldOrder){
+            heldOrder.finishingProgress={openings:Object.fromEntries(job.openings.map(o=>[o.input.id,o.production||{}])),production:job.production,activity:job.activity};
+            heldOrder.version=job.version;heldOrder.updatedAt=time;
+          }
           return {job};
         }
         if(operation==='timer'){

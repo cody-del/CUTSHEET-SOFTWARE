@@ -178,7 +178,7 @@ test('frame appearances stay distinct, fit the preview, and respect three-sided 
  const {drawing}=await import('../public/layouts.js');
  const signatures=new Set();
  for(const frame of FRAME_STYLES){
-  const o={...base,frame:frame.profile||'ST',...(frame.profile?{}:{frameStyle:frame.id})};
+  const o={...base,frame:frame.profile||'ST',...(frame.id===frame.profile?{}:{frameStyle:frame.id})};
   const shapes=frameShapes(o,{left:22,top:28,width:214,height:120});signatures.add(JSON.stringify(shapes));
   for(const width of [36,150]){
    const scene=drawing({...o,width});
@@ -190,13 +190,20 @@ test('frame appearances stay distinct, fit the preview, and respect three-sided 
  }
  assert.equal(signatures.size,FRAME_STYLES.length);
 });
-test('unconfirmed frame styles save as previews without producing substitute cuts or PDFs',async()=>{
- for(const frameStyle of ['MS','MZ','EL']){
-  for(const o of [{...base,frameStyle},{...tpostBase,frameStyle}]){
-   const r=calculate(o);assert.equal(r.status,'preview-only');assert.deepEqual(r.parts,[]);assert.match(r.warnings.join(' '),/deductions still need confirmation/);
-   await assert.rejects(createPDF({number:'FRAME',openings:[o]}),/deductions still need confirmation/);
+test('confirmed modern and Elegance styles use the exact base cutting rules and generate PDFs',async()=>{
+ for(const [frameStyle,frame]of [['MS','ST'],['MZ','ZF'],['EL','ZF']]){
+  for(const source of [base,tpostBase]){
+   const o={...source,frameStyle},expected=calculate({...source,frame}),actual=calculate(o);
+   assert.deepEqual(actual,expected);
+   assert.equal(o.frame,source.frame,'calculation does not mutate a saved record');
+   // Compare valid shutter-size examples so manufacturing warnings still block unsafe PDFs.
+   const printable={...o,sizeMethod:'S',height:59.5};
+   assert.deepEqual(calculate(printable).warnings,[]);
+   const pdf=await PDFDocument.load(await createPDF({number:'FRAME',openings:[printable]}));
+   assert.equal(pdf.getPageCount(),1);
   }
  }
+ assert.notDeepEqual(calculate({...base,frame:'DS',mount:'O'}).parts,calculate({...base,frame:'ST',mount:'O'}).parts);
  assert.throws(()=>calculate({...base,frameStyle:'made-up'}),/valid frame style/);
  assert.throws(()=>calculate({...base,frame:'ST',frameStyle:'ZF'}),/matching the cutting profile/);
  assert.deepEqual(calculate({...base,frameStyle:'ST'}).parts,calculate(base).parts);

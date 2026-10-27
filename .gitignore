@@ -1,4 +1,7 @@
 node_modules
+node_modules 2
+supabase/.temp/
+backups/
 source/cached-values.json
 test-output/
 .netlify/

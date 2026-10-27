@@ -1,13 +1,14 @@
+import {emptyCompanyProfile,validateCompanyProfile} from './company-profile.mjs';
 import {orderFinancials,salesFinancials} from './public/order-finance.js';
 import {orderReadiness,orderManufacturingOpenings} from './order-manufacturing.mjs';
 import {quotePricing} from './public/quote-pricing.js';
 import {PRODUCTS,productId,productFor,productName,lineProduct,isManufacturingLine,manufacturingOpenings,hasManufacturingLines,quoteProductNames,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {randomUUID} from 'node:crypto';
-import {calculate} from './calculations.mjs';
+import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {production} from './public/shop-state.js';
 import {formatContactAddress} from './public/contact-address.js';
 
-export const salesOperations=['sales','pricing-save','sales-get','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save'];
+export const salesOperations=['company-get','company-save','sales','pricing-save','sales-get','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
 const fail=(status,message)=>{throw new SalesError(status,message);};
 const identifier=value=>{if(typeof value!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(value)||['__proto__','constructor','prototype'].includes(value))fail(400,'Invalid record identifier.');return value;};
@@ -39,25 +40,26 @@ export function quoteTotals(quote){
 }
 const requireProduct=record=>{const product=productFor(record);if(!product)fail(400,'Choose a supported product.');return product;};
 const requireCutSheets=record=>{if(!hasManufacturingLines(record))fail(422,CUT_SHEETS_ONLY);};
-function openings(value,record,pricingFor){
+function openings(value,record,pricingFor,allowIncomplete=false){
   if(!Array.isArray(value)||value.length>100)fail(400,'A quote can hold up to 100 openings.');
   const seen=new Set();return value.map(raw=>{
     identifier(raw?.id);if(seen.has(raw.id))fail(400,'Opening identifiers must be unique.');seen.add(raw.id);
     const previous=record.openings.find(o=>o.id===raw.id),identity=raw.productId===undefined?lineProduct(previous,record):lineProduct(raw,record);
     requireProduct(identity);
-    if(previous&&(productId(identity)!==productId(lineProduct(previous,record))||identity.productLabel!==lineProduct(previous,record).productLabel))fail(400,'Add a new line item to choose a different product.');
+    const productChanged=previous&&(productId(identity)!==productId(lineProduct(previous,record))||identity.productLabel!==lineProduct(previous,record).productLabel);
+    if(productChanged&&Number.isFinite(previous.width)&&Number.isFinite(previous.height))fail(400,'Add a new line item to choose a different product.');
     const keys=supportsCutSheets(identity)?['id','name','width','height','quantity','left','right','louver','frame','frameStyle','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts']:['id','name','width','height','quantity','notes'];
     const o=Object.fromEntries(keys.filter(k=>raw[k]!==undefined).map(k=>[k,structuredClone(raw[k])]));
     if(raw.productId!==undefined||previous?.productId!==undefined){
       o.productId=productId(identity);
       if(o.productId==='other')o.productLabel=text(identity.productLabel,'brand name',80,true);
       // The server owns price snapshots; a client cannot supply a fabricated rate.
-      o.pricing=structuredClone(previous?.pricing??(previous&&productId(identity)===productId(record)?record.pricing:pricingFor(identity)));
+      o.pricing=structuredClone(productChanged?pricingFor(identity):previous?.pricing??(previous&&productId(identity)===productId(record)?record.pricing:pricingFor(identity)));
     }
     o.name=text(o.name,'opening name',80,true);o.notes=text(o.notes||'','opening notes',1200);
-    if(supportsCutSheets(identity))calculate(o);
+    if(supportsCutSheets(identity)){Object.assign(o,validateOpening(o,{allowIncomplete}));if(completeOpening(o))calculate(o);}
     else{
-      for(const key of ['width','height'])if(typeof o[key]!=='number'||!Number.isFinite(o[key])||o[key]<=0||o[key]>10000)fail(400,'Enter dimensions greater than zero and no larger than 10,000 inches.');
+      for(const key of ['width','height'])if(!(allowIncomplete&&o[key]==null)&&(typeof o[key]!=='number'||!Number.isFinite(o[key])||o[key]<=0||o[key]>10000))fail(400,'Enter dimensions greater than zero and no larger than 10,000 inches.');
       if(!Number.isInteger(o.quantity)||o.quantity<1||o.quantity>100)fail(400,'Quantity must be a whole number between 1 and 100.');
     }
     return o;
@@ -70,6 +72,12 @@ export async function runSales(state,operation,data,time,publish){
   const pricingFor=record=>productId(record)==='other'?{rateCents:null,minimumAreaHundredths:0,version:0}:supportsCutSheets(record)?state.pricing:state.productPricing[requireProduct(record).id]||{rateCents:null,minimumAreaHundredths:0,version:0};
   const touch=r=>{r.version++;r.updatedAt=time;return r;};
   const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:hasManufacturingLines(q)?production(state.jobs[q.id]).key:null,financials:orderFinancials(q,quoteTotals(q).total),readiness:orderReadiness(q,!!state.jobs[q.id])});
+  if(operation==='company-get')return {company:state.companyProfile||emptyCompanyProfile()};
+  if(operation==='company-save'){
+    const previous=state.companyProfile||emptyCompanyProfile();current(previous,data.version);
+    let fields;try{fields=await validateCompanyProfile(data.fields);}catch(e){fail(400,e.message);}
+    state.companyProfile={...fields,version:previous.version+1,updatedAt:time};return {company:state.companyProfile};
+  }
   if(operation==='pricing-save'){
     const product=requireProduct(data),previous=pricingFor(data);if(product.id==='other')fail(400,'Set a unit price on each line for other brands.');current(previous,data.version);
     const rateCents=amount(data.rateCents,'price per square foot',1000000);if(!rateCents)fail(400,'Enter a price greater than zero.');
@@ -83,7 +91,7 @@ export async function runSales(state,operation,data,time,publish){
     if(!['quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const record=get(data.kind==='quote'?state.quotes:state.orders,data.id);
     requireProduct(record);
-    return {record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
+    return {company:state.companyProfile||emptyCompanyProfile(),record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)&&completeOpening(o)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
   }
   if(operation==='contact-save'){
     const id=identifier(data.id),previous=state.contacts[id];if(previous)current(previous,data.version);else if(data.version!==0)fail(409,'This contact no longer exists.');
@@ -99,7 +107,7 @@ export async function runSales(state,operation,data,time,publish){
     const id=identifier(data.id),contact=get(state.contacts,data.contactId),product=requireProduct(data);
     if(state.quotes[id]){if(productId(state.quotes[id])!==product.id)fail(409,'This quote already uses a different product.');return {quote:state.quotes[id]};}
     if(Object.keys(state.quotes).length>=1000)fail(400,'Quote capacity reached.');
-    const quote={id,contactId:contact.id,productId:product.id,...(product.id==='other'?{productLabel:text(data.productLabel,'brand name',80,true)}:{}),number:'Q-'+String(++state.salesCounters.quote).padStart(4,'0'),name:text(data.name||product.name,'quote name',100,true),status:'draft',pricing:structuredClone(pricingFor(data)),openings:[],unitPrices:{},installationCents:0,discountCents:0,taxBasisPoints:0,notes:'',validUntil:'',createdAt:time,updatedAt:time,version:1};
+    const quote={id,contactId:contact.id,productId:product.id,...(product.id==='other'?{productLabel:text(data.productLabel,'brand name',80,true)}:{}),number:'Q-'+String(++state.salesCounters.quote).padStart(4,'0'),name:text(data.name||contactName(contact).slice(0,100),'quote name',100,true),status:'draft',pricing:structuredClone(pricingFor(data)),openings:[],unitPrices:{},installationCents:0,discountCents:0,taxBasisPoints:0,notes:'',validUntil:'',createdAt:time,updatedAt:time,version:1};
     state.quotes[id]=quote;return {quote};
   }
   if(operation==='quote-product'){
@@ -119,7 +127,7 @@ export async function runSales(state,operation,data,time,publish){
     if(('productId'in fields&&fields.productId!==quote.productId)||('productLabel'in fields&&fields.productLabel!==quote.productLabel))fail(400,'Start a new quote to select a different product.');
     if('openings'in fields){
       // An older tab must not replace a newer multi-product quote with untagged data.
-      quote.openings=openings(fields.openings,quote,pricingFor);
+      quote.openings=openings(fields.openings,quote,pricingFor,true);
     }
     if(fields.useCurrentPricing===true){quote.pricing=structuredClone(pricingFor(quote));for(const o of quote.openings)if(o.productId!==undefined)o.pricing=structuredClone(pricingFor(lineProduct(o,quote)));}
     if('name'in fields)quote.name=text(fields.name,'quote name',100,true);
@@ -140,6 +148,7 @@ export async function runSales(state,operation,data,time,publish){
     if(quote.orderId)return {order:get(state.orders,quote.orderId)};
     current(quote,data.version);
     if(!quote.openings.length||quoteTotals(quote).unpriced)fail(400,'Add openings and price every opening before converting to an order.');
+    for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');
     const id=randomUUID();if(Object.keys(state.orders).length>=1000)fail(400,'Order capacity reached.');
     const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:'O-'+String(++state.salesCounters.order).padStart(4,'0'),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId)),createdAt:time,updatedAt:time,version:1};
     state.orders[id]=order;quote.status='ordered';quote.orderId=id;touch(quote);return {order};

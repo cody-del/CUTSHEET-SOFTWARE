@@ -65,6 +65,14 @@ test('account endpoints isolate contact records, jobs, PDFs and writes; legacy c
  const f=await fixture(t);await f.enroll(A);await f.enroll(B);
  assert.equal((await f.run('contact-save',{id:'customer-a',version:0,fields:contact})).status,200);
  assert.equal((await f.run('sales',undefined,B)).value.contacts.length,0);
+ assert.equal((await f.run('workspace-backup')).value.data.contacts['customer-a'].email,contact.email);
+ assert.equal((await f.run('workspace-backup',undefined,B)).value.data.contacts?.['customer-a'],undefined);
+ assert.equal((await f.run('workspace-backup',undefined,null)).status,401);
+ assert.equal((await f.run('company-save',{version:0,fields:{name:'Account A Company',terms:'Account A terms'}})).status,200);
+ assert.equal((await f.run('company-get',undefined,B)).value.company.name,'');
+ assert.equal((await f.run('company-save',{version:1,ownerId:A,fields:{name:'Overwrite A'}},B)).status,409);
+ assert.equal((await f.run('company-get')).value.company.name,'Account A Company');
+ assert.equal((await f.run('company-get',undefined,null)).status,401);
  assert.equal((await f.run('sales-get',{kind:'contact',id:'customer-a'},B)).status,404);
  assert.equal((await f.run('contact-save',{id:'customer-a',version:1,fields:{...contact,phone:'attacker'}},B)).status,409);
  assert.equal((await f.run('publish',{job:{id:'job-a',name:'Private job',number:'A-001',openings:[opening],notes:''}})).status,200);
@@ -103,6 +111,7 @@ test('paired shop iPads stay within the account that issued their code and can b
  assert.equal((await f.run('session',undefined,null,own)).value.ownerId,A);
  assert.equal((await f.run('jobs',undefined,null,own)).status,200);
  assert.equal((await f.run('sales',undefined,null,own)).status,403);
+ assert.equal((await f.run('workspace-backup',undefined,null,own)).status,403);
  assert.equal((await f.run('jobs',undefined,null,{...own,'x-cutsheet-account':B})).status,409);
  assert.equal((await f.run('jobs',undefined,null,{...own,cookie:cookie+'tampered'})).status,401);
  const board=await f.run('dashboard');await f.run('revoke',{deviceId:board.value.devices[0].id});

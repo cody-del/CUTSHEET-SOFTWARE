@@ -90,3 +90,14 @@ test('standalone cut sheets link only to workspace contacts, appear on contacts 
  assert.equal((await service.run('sales-get',{kind:'contact',id:'linked-contact'})).cutSheets.length,1);
  assert.equal((await service.run('draft-get',{id:'unlink-sheet'})).draft.customer,'Walk-in customer');
 });
+
+test('unfinished cut-sheet drafts save and reload, but cannot enter production',async t=>{
+ const {service}=await setup(t);
+ const {draft}=await service.run('draft-save',{id:'partial-draft',version:0,fields:{...fields,number:'',openings:[{...opening,width:36,height:null}]}});
+ assert.match(draft.number,/^CS-\d{4}$/);assert.equal(draft.openings[0].height,null);
+ assert.equal((await service.run('draft-get',{id:draft.id})).draft.openings[0].width,36);
+ await assert.rejects(service.run('draft-release',{id:draft.id,version:draft.version}),/Height/);
+ const second=(await service.run('draft-save',{id:'second-draft',version:0,fields:{...fields,number:'',openings:[]}})).draft;
+ assert.notEqual(second.number,draft.number);
+ await assert.rejects(service.run('draft-save',{id:draft.id,version:draft.version,fields:{...draft,openings:[{...opening,width:0,height:null}]}}),/Width/);
+});

@@ -11,7 +11,7 @@ export function shopHandler(service) {
   return async request=>{
     const url=new URL(request.url),operation=url.pathname.split('/').pop();
     if(![...salesOperations,...workspaceOperations,'sales-document','order-pdf','job-get','job-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
-    const read=['workspace','sales','session','jobs','dashboard'].includes(operation);
+    const read=['company-get','workspace','workspace-backup','sales','session','jobs','dashboard'].includes(operation);
     if(request.method!==(read?'GET':'POST'))return json(405,{error:read?'GET required.':'POST required.'});
     if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});
     if(!read&&!request.headers.get('content-type')?.startsWith('application/json'))return json(415,{error:'Expected JSON.'});
@@ -47,6 +47,7 @@ export function shopHandler(service) {
         return new Response(pdf,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="'+record.record.number+(operation==='order-pdf'?'-cut-sheets':'')+'.pdf"','Cache-Control':'no-store'}});
       }
       const result=await service.run(operation,data,cookie);
+      if(operation==='workspace-backup')return json(200,result,{'Content-Disposition':'attachment; filename="cut-sheets-company-backup-'+result.createdAt.slice(0,10)+'.json"'});
       if(result.error)return json(result.status||400,{error:result.error});
       if(result.cookie)return json(200,{ok:true},{'Set-Cookie':setCookie(result.cookie,result.token,result.maxAge)});
       return json(200,result);
