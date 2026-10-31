@@ -85,6 +85,26 @@ test('account endpoints isolate contact records, jobs, PDFs and writes; legacy c
  const denied=await f.api.protect(new Request('https://example.test/api/info'),calculationHandler);assert.equal(denied.status,401);
 });
 
+test('delete and restore stay inside the authenticated owner workspace for contacts, quotes and orders',async t=>{
+ const f=await fixture(t);await f.enroll(A);await f.enroll(B);
+ await f.run('contact-save',{id:'customer-a',version:0,fields:contact});
+ await f.run('pricing-save',{version:0,rateCents:2500,minimumAreaHundredths:0});
+ let q=(await f.run('quote-create',{id:'quote-a',contactId:'customer-a'})).value.quote;
+ q=(await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[opening]}})).value.quote;
+ const order=(await f.run('quote-convert',{id:q.id,version:q.version})).value.order;
+ for(const [kind,id]of [['contact','customer-a'],['quote','quote-a'],['order',order.id]]){
+  const detail=(await f.run('sales-get',{kind,id})).value,record=detail.record||detail.contact;
+  assert.equal((await f.run('sales-delete',{kind,id,version:record.version,ownerId:A},B)).status,404);
+  assert.equal((await f.run('sales-delete',{kind,id,version:record.version})).status,200);
+  const deleted=(await f.run('sales')).value.deleted[kind+'s'].find(r=>r.id===id);
+  assert.equal((await f.run('sales',undefined,B)).value.deleted[kind+'s'].length,0);
+  assert.equal((await f.run('sales-restore',{kind,id,version:deleted.version,ownerId:A},B)).status,404);
+  assert.equal((await f.run('sales-get',{kind,id})).status,410);
+  assert.equal((await f.run('sales-restore',{kind,id,version:deleted.version})).status,200);
+  assert.equal((await f.run('sales-get',{kind,id})).status,200);
+ }
+});
+
 test('signup needs the secret; direct Auth users, unconfirmed users and revoked sessions cannot enroll',async t=>{
  const f=await fixture(t);
  const request=(action,data)=>new Request('https://example.test/api/auth/'+action,{method:'POST',headers:{'Content-Type':'application/json',origin:'https://example.test'},body:JSON.stringify(data)});

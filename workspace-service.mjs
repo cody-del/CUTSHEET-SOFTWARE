@@ -33,9 +33,9 @@ export async function runWorkspace(state,operation,data,time,publish){
   const get=id=>{const draft=state.drafts[identifier(id)];if(!draft)fail(404,'This shared draft was not found.');return draft;};
   const current=(draft,version)=>{if(draft.version!==version)fail(409,'This draft changed on another device. Reload it before saving again.');};
   if(operation==='workspace'){
-    const orders=Object.values(state.orders||{}).filter(hasManufacturingLines).map(o=>({id:o.id,kind:'order',name:o.name,number:o.number,customer:[o.customer?.firstName,o.customer?.lastName].filter(Boolean).join(' '),openingCount:manufacturingOpenings(o).length,updatedAt:o.updatedAt,stage:state.jobs[o.id]?production(state.jobs[o.id]).label:orderReadiness(o).label,released:!!state.jobs[o.id],archived:false}));
+    const orders=Object.values(state.orders||{}).filter(o=>!o.deletedAt&&hasManufacturingLines(o)).map(o=>({id:o.id,kind:'order',name:o.name,number:o.number,customer:[o.customer?.firstName,o.customer?.lastName].filter(Boolean).join(' '),openingCount:manufacturingOpenings(o).length,updatedAt:o.updatedAt,stage:state.jobs[o.id]?production(state.jobs[o.id]).label:orderReadiness(o).label,released:!!state.jobs[o.id],archived:false}));
     const drafts=Object.values(state.drafts).map(d=>({id:d.id,kind:'draft',name:d.name,number:d.number,customer:d.customer,openingCount:d.openings.length,updatedAt:d.updatedAt,stage:state.jobs[d.id]?production(state.jobs[d.id]).label:'Draft',released:!!state.jobs[d.id],archived:d.archived,imported:!!d.sourceId}));
-    const jobs=Object.values(state.jobs).filter(j=>!state.orders?.[j.id]&&!state.drafts[j.id]).map(j=>({id:j.id,kind:'job',name:j.name,number:j.number,customer:'',openingCount:j.openings.length,updatedAt:j.updatedAt,stage:production(j).label,released:true,archived:false}));
+    const jobs=Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]&&!state.drafts[j.id]).map(j=>({id:j.id,kind:'job',name:j.name,number:j.number,customer:'',openingCount:j.openings.length,updatedAt:j.updatedAt,stage:production(j).label,released:true,archived:false}));
     return {cutSheets:[...orders,...drafts,...jobs].sort((a,b)=>b.updatedAt-a.updatedAt)};
   }
   if(operation==='draft-get'){const draft=get(data.id);return {draft,released:!!state.jobs[draft.id]};}
@@ -47,7 +47,7 @@ export async function runWorkspace(state,operation,data,time,publish){
     if(!previous&&Object.keys(state.drafts).length>=500)fail(400,'Shared draft capacity reached.');
     const contactId=data.fields?.contactId??previous?.contactId??'';
     const contact=contactId?state.contacts?.[identifier(contactId)]:null;
-    if(contactId&&!contact)fail(404,'Choose a contact from this workspace.');
+    if(contactId&&(!contact||contact.deletedAt&&previous?.contactId!==contactId))fail(404,'Choose an active contact from this workspace.');
     const raw={...data.fields};
     if(!previous&&!raw.number){state.draftCounter??=0;do{raw.number='CS-'+String(++state.draftCounter).padStart(4,'0');}while(Object.values(state.drafts).some(d=>d.number===raw.number));}
     const input=fields(raw);

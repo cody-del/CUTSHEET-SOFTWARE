@@ -8,14 +8,14 @@ import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {production} from './public/shop-state.js';
 import {formatContactAddress} from './public/contact-address.js';
 
-export const salesOperations=['company-get','company-save','sales','pricing-save','sales-get','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save'];
+export const salesOperations=['company-get','company-save','sales','pricing-save','sales-get','sales-delete','sales-restore','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
 const fail=(status,message)=>{throw new SalesError(status,message);};
 const identifier=value=>{if(typeof value!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(value)||['__proto__','constructor','prototype'].includes(value))fail(400,'Invalid record identifier.');return value;};
 const text=(value,label,max,required=false)=>{if(typeof value!=='string'||value.length>max||required&&!value.trim())fail(400,`Enter a valid ${label}.`);return value.trim();};
 const amount=(value,label,max=100000000)=>{if(!Number.isSafeInteger(value)||value<0||value>max)fail(400,`Enter a valid ${label}.`);return value;};
 const date=value=>{if(value==='')return '';if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value+'T12:00:00Z'))||new Date(value+'T12:00:00Z').toISOString().slice(0,10)!==value)fail(400,'Enter a valid date.');return value;};
-const get=(collection,id)=>{const record=collection[identifier(id)];if(!record)fail(404,'This record was not found.');return record;};
+const get=(collection,id,includeDeleted=false)=>{const record=collection[identifier(id)];if(!record)fail(404,'This record was not found.');if(record.deletedAt&&!includeDeleted)fail(410,'This record is in Deleted. Restore it before using it.');return record;};
 const current=(record,version)=>{if(record.version!==version)fail(409,'This record changed on another device. Reload it before saving again.');};
 const contactName=c=>[c.firstName,c.lastName].filter(Boolean).join(' ');
 function contactAddress(fields,previous){
@@ -66,12 +66,32 @@ function openings(value,record,pricingFor,allowIncomplete=false){
   });
 }
 const summary=q=>({id:q.id,productId:productId(q),productLabel:q.productLabel,productNames:quoteProductNames(q),manufacturingOpeningCount:manufacturingOpenings(q).length,contactId:q.contactId,number:q.number,name:q.name,status:q.status,orderId:q.orderId,quoteId:q.quoteId,createdAt:q.createdAt,updatedAt:q.updatedAt,version:q.version,openingCount:q.openings.length,total:quoteTotals(q).total,unpriced:quoteTotals(q).unpriced});
-export async function runSales(state,operation,data,time,publish){
+export async function runSales(state,operation,data,time,publish,actorName='Owner'){
   state.contacts??={};state.quotes??={};state.orders??={};state.salesCounters??={quote:0,order:0};state.pricing??={rateCents:null,minimumAreaHundredths:0,version:0};
   state.productPricing??={};
   const pricingFor=record=>productId(record)==='other'?{rateCents:null,minimumAreaHundredths:0,version:0}:supportsCutSheets(record)?state.pricing:state.productPricing[requireProduct(record).id]||{rateCents:null,minimumAreaHundredths:0,version:0};
   const touch=r=>{r.version++;r.updatedAt=time;return r;};
+  const active=collection=>Object.values(collection).filter(r=>!r.deletedAt);
+  const recordSummary=q=>({...summary(q),customerName:contactName(q.customer||state.contacts[q.contactId]||{}),orderDeleted:!!state.orders[q.orderId]?.deletedAt});
   const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:hasManufacturingLines(q)?production(state.jobs[q.id]).key:null,financials:orderFinancials(q,quoteTotals(q).total),readiness:orderReadiness(q,!!state.jobs[q.id])});
+  if(operation==='sales-delete'||operation==='sales-restore'){
+    if(!['contact','quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
+    const collection=state[data.kind+'s'],record=get(collection,data.id,true);current(record,data.version);
+    const restoring=operation==='sales-restore';
+    if(restoring?!record.deletedAt:!!record.deletedAt)fail(409,restoring?'This record is already active.':'This record is already in Deleted.');
+    if(restoring&&active(collection).length>=(data.kind==='contact'?2000:1000))fail(400,'Record capacity reached. Delete an active record before restoring this one.');
+    const job=data.kind==='order'?state.jobs[record.id]:null;
+    if(restoring&&job&&active(state.jobs).length>=500)fail(400,'Shop capacity reached. Delete an active order before restoring this one.');
+    if(restoring){delete record.deletedAt;delete record.deletedBy;}
+    else{record.deletedAt=time;record.deletedBy=actorName;}
+    touch(record);
+    if(job){
+      if(job.startedAt){job.elapsedMs=(job.elapsedMs||0)+Math.max(0,time-job.startedAt);job.startedAt=null;}
+      if(restoring)delete job.deletedAt;else job.deletedAt=time;
+      job.activity??=[];job.activity.unshift({at:time,by:actorName,message:restoring?'Order restored; cutting timer remains paused.':'Order moved to Deleted; production paused.'});job.activity=job.activity.slice(0,200);touch(job);
+    }
+    return {ok:true,id:record.id,version:record.version};
+  }
   if(operation==='company-get')return {company:state.companyProfile||emptyCompanyProfile()};
   if(operation==='company-save'){
     const previous=state.companyProfile||emptyCompanyProfile();current(previous,data.version);
@@ -85,17 +105,21 @@ export async function runSales(state,operation,data,time,publish){
     if(supportsCutSheets(data))state.pricing=pricing;else state.productPricing[product.id]=pricing;
     return {productId:product.id,pricing};
   }
-  if(operation==='sales'){const orders=Object.values(state.orders).map(orderSummary);return {financials:salesFinancials(orders),pricing:state.pricing,productPricing:Object.fromEntries(PRODUCTS.map(product=>[product.id,pricingFor({productId:product.id})])),contacts:Object.values(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:Object.values(state.quotes).map(summary),orders};}
+  if(operation==='sales'){
+    const orders=active(state.orders).map(q=>({...orderSummary(q),customerName:contactName(q.customer||state.contacts[q.contactId]||{})}));
+    const deleted=Object.fromEntries(['contacts','quotes','orders'].map(kind=>[kind,Object.values(state[kind]).filter(r=>r.deletedAt).map(r=>({id:r.id,name:kind==='contacts'?contactName(r):r.name,number:r.number,version:r.version,deletedAt:r.deletedAt}))]));
+    return {financials:salesFinancials(orders),pricing:state.pricing,productPricing:Object.fromEntries(PRODUCTS.map(product=>[product.id,pricingFor({productId:product.id})])),contacts:active(state.contacts).sort((a,b)=>b.updatedAt-a.updatedAt),quotes:active(state.quotes).map(recordSummary),orders,deleted};
+  }
   if(operation==='sales-get'){
-    if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:Object.values(state.quotes).filter(q=>q.contactId===contact.id).map(summary),orders:Object.values(state.orders).filter(q=>q.contactId===contact.id).map(orderSummary),cutSheets:Object.values(state.drafts||{}).filter(d=>d.contactId===contact.id).map(d=>({id:d.id,name:d.name,number:d.number,openingCount:d.openings.length,archived:d.archived,released:!!state.jobs[d.id],stage:state.jobs[d.id]?production(state.jobs[d.id]).label:'Draft'}))};}
+    if(data.kind==='contact'){const contact=get(state.contacts,data.id);return {contact,quotes:active(state.quotes).filter(q=>q.contactId===contact.id).map(recordSummary),orders:active(state.orders).filter(q=>q.contactId===contact.id).map(orderSummary),cutSheets:Object.values(state.drafts||{}).filter(d=>d.contactId===contact.id).map(d=>({id:d.id,name:d.name,number:d.number,openingCount:d.openings.length,archived:d.archived,released:!!state.jobs[d.id],stage:state.jobs[d.id]?production(state.jobs[d.id]).label:'Draft'}))};}
     if(!['quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const record=get(data.kind==='quote'?state.quotes:state.orders,data.id);
     requireProduct(record);
-    return {company:state.companyProfile||emptyCompanyProfile(),record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId),totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)&&completeOpening(o)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
+    return {company:state.companyProfile||emptyCompanyProfile(),record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId,true),orderDeleted:!!state.orders[record.orderId]?.deletedAt,totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)&&completeOpening(o)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
   }
   if(operation==='contact-save'){
-    const id=identifier(data.id),previous=state.contacts[id];if(previous)current(previous,data.version);else if(data.version!==0)fail(409,'This contact no longer exists.');
-    if(!previous&&Object.keys(state.contacts).length>=2000)fail(400,'Contact capacity reached.');
+    const id=identifier(data.id),previous=state.contacts[id];if(previous){get(state.contacts,id);current(previous,data.version);}else if(data.version!==0)fail(409,'This contact no longer exists.');
+    if(!previous&&active(state.contacts).length>=2000)fail(400,'Contact capacity reached.');
     const fields=data.fields||{};
     if(typeof fields!=='object'||Array.isArray(fields))fail(400,'Enter valid contact details.');
     const contact={id,firstName:text(fields.firstName,'first name',80),lastName:text(fields.lastName,'last name',80),...contactAddress(fields,previous),phone:text(fields.phone,'phone number',60),email:text(fields.email,'email',254),notes:text(fields.notes??previous?.notes??'','contact notes',10000),createdAt:previous?.createdAt||time,updatedAt:time,version:(previous?.version||0)+1};
@@ -105,8 +129,8 @@ export async function runSales(state,operation,data,time,publish){
   }
   if(operation==='quote-create'){
     const id=identifier(data.id),contact=get(state.contacts,data.contactId),product=requireProduct(data);
-    if(state.quotes[id]){if(productId(state.quotes[id])!==product.id)fail(409,'This quote already uses a different product.');return {quote:state.quotes[id]};}
-    if(Object.keys(state.quotes).length>=1000)fail(400,'Quote capacity reached.');
+    if(state.quotes[id]){const previous=get(state.quotes,id);if(productId(previous)!==product.id)fail(409,'This quote already uses a different product.');return {quote:previous};}
+    if(active(state.quotes).length>=1000)fail(400,'Quote capacity reached.');
     const quote={id,contactId:contact.id,productId:product.id,...(product.id==='other'?{productLabel:text(data.productLabel,'brand name',80,true)}:{}),number:'Q-'+String(++state.salesCounters.quote).padStart(4,'0'),name:text(data.name||contactName(contact).slice(0,100),'quote name',100,true),status:'draft',pricing:structuredClone(pricingFor(data)),openings:[],unitPrices:{},installationCents:0,discountCents:0,taxBasisPoints:0,notes:'',validUntil:'',createdAt:time,updatedAt:time,version:1};
     state.quotes[id]=quote;return {quote};
   }
@@ -149,8 +173,8 @@ export async function runSales(state,operation,data,time,publish){
     current(quote,data.version);
     if(!quote.openings.length||quoteTotals(quote).unpriced)fail(400,'Add openings and price every opening before converting to an order.');
     for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');
-    const id=randomUUID();if(Object.keys(state.orders).length>=1000)fail(400,'Order capacity reached.');
-    const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:'O-'+String(++state.salesCounters.order).padStart(4,'0'),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId)),createdAt:time,updatedAt:time,version:1};
+    const id=randomUUID();if(active(state.orders).length>=1000)fail(400,'Order capacity reached.');
+    const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:'O-'+String(++state.salesCounters.order).padStart(4,'0'),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId,true)),createdAt:time,updatedAt:time,version:1};
     state.orders[id]=order;quote.status='ordered';quote.orderId=id;touch(quote);return {order};
   }
   const orderResult=order=>({order,financials:orderFinancials(order,quoteTotals(order).total),released:!!state.jobs[order.id],readiness:orderReadiness(order,!!state.jobs[order.id]),releaseIssue:order.releaseIssue||''});
