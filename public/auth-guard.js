@@ -1,4 +1,5 @@
 import {clearPrivateCache} from './account-storage.js';
+import {authCallbackURL} from './auth-callback.js';
 const current=()=>location.pathname+location.search+location.hash;
 const signInURL=()=>'/auth.html?next='+encodeURIComponent(current());
 function hide(){document.body.replaceChildren();}
@@ -10,6 +11,8 @@ async function validate(){
 }
 async function enter(){
  if(typeof window==='undefined')return null;
+ const callback=authCallbackURL(location.href);
+ if(callback){hide();location.replace(callback);return new Promise(()=>{});}
  try{
   const session=await validate();
   if(!session.role){

@@ -18,15 +18,20 @@ function render(){
   const result=await request(mode==='reset'?'password':mode,data);
   if(mode==='recover'){document.querySelector('#account-status').textContent=result.message;return;}
   if(mode==='signup'&&!result.signedIn){e.target.reset();document.querySelector('#account-status').textContent='Check your email to confirm your account, then sign in.';return;}
+  if(mode==='reset'){resetCache();root.innerHTML='<h1>Password saved</h1><p>Your new password is ready to use.</p><a class="btn primary" id="open-workspace">Open workspace</a>';document.querySelector('#open-workspace').href=next;return;}
   success();
  }catch(error){document.querySelector('#account-error').textContent=error.name==='TimeoutError'?'The request timed out. Check your connection and try again.':error.message;}finally{busy=false;button.disabled=false;}};
 }
 if(!['login','signup','recover','reset','logout'].includes(mode))mode='login';
 const fragment=new URLSearchParams(location.hash.slice(1));
-if(fragment.has('access_token')){
+if(fragment.has('error')||fragment.has('error_code')){
+ history.replaceState(null,'',location.pathname+'?mode=recover');mode='recover';render();
+ document.querySelector('#account-error').textContent='This link is invalid or expired. Request a new password reset link.';
+}else if(fragment.has('access_token')){
  const tokens={accessToken:fragment.get('access_token'),refreshToken:fragment.get('refresh_token')};
  const recovery=fragment.get('type')==='recovery'||mode==='reset';
- history.replaceState(null,'',location.pathname+location.search);root.innerHTML='<h1>Confirming your account…</h1>';
+ const callbackURL=new URL(location.href);callbackURL.hash='';if(recovery)callbackURL.searchParams.set('mode','reset');
+ history.replaceState(null,'',callbackURL.pathname+callbackURL.search);root.innerHTML='<h1>Confirming your account…</h1>';
  try{await request('complete',tokens);resetCache();if(recovery){mode='reset';render();}else success();}catch(e){mode='login';render();document.querySelector('#account-error').textContent=e.message;}
 }else if(mode==='logout'){
  root.innerHTML='<h1>Signing out…</h1>';try{await request('logout',{});resetCache();location.replace('/auth.html');}catch(e){mode='login';render();document.querySelector('#account-error').textContent=e.message;}
