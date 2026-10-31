@@ -5,6 +5,14 @@ import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {calculate,combinedParts,ValidationError,configuration} from './calculations.mjs';
 const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
 const ascii=s=>String(s??'').normalize('NFKD').replace(/×/g,'x').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/·/g,'  ').replace(/[–—]/g,'-').replace(/[^\x20-\x7e\n]/g,'');
+export function formatPrintLength(mm,units='mm',{hinge=false}={}){
+  if(units==='in')return (mm/25.4).toFixed(4);
+  // Both original print sheets use 0.0 for lengths/machining and 0 for hinges.
+  // Round only the displayed text. Absorb binary floating-point noise at ties
+  // so a computed 735.8499999999999 prints as 735.9 rather than 735.8.
+  const decimals=hinge?0:1,scale=10**decimals,scaled=Math.abs(mm)*scale;
+  return (Math.sign(mm)*Math.round(scaled+Number.EPSILON*Math.max(1,scaled)*2)/scale).toFixed(decimals);
+}
 export async function createPDF(job,{combined=false,units='mm'}={}){
   if(!job||!Array.isArray(job.openings)||job.openings.length<1||job.openings.length>100)throw new ValidationError('Add between 1 and 100 openings.');
   if(!supportsCutSheets(job))throw new ValidationError(CUT_SHEETS_ONLY);
@@ -13,7 +21,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   const pdf=await PDFDocument.create(),regular=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
   pdf.setTitle(`${job.number||'Job'} - ${combined?'Combined cutting list':'Cut sheets'}`);pdf.setAuthor('Cut sheet');
   const ink=rgb(.08,.08,.08),muted=rgb(.4,.4,.4),pale=rgb(.95,.95,.95),white=rgb(1,1,1),line=rgb(.87,.87,.87);
-  const margin=32,width=548,floor=54,length=n=>units==='in'?(n/25.4).toFixed(4):n.toFixed(2);
+  const margin=32,width=548,floor=54,length=n=>formatPrintLength(n,units);
   let page,y,openingLabel='';
   function text(s,x,yy,size=9,font=regular,color=ink){page.drawText(ascii(s),{x,y:yy,size,font,color});}
   function wrap(s,w,size=9,font=regular){const lines=[];for(const paragraph of ascii(s).split('\n')){let current='';for(const word of paragraph.split(/\s+/)){if(font.widthOfTextAtSize(word,size)>w){if(current){lines.push(current);current='';}let part='';for(const ch of word){if(font.widthOfTextAtSize(part+ch,size)>w){lines.push(part);part='';}part+=ch;}current=part;continue;}if(current&&font.widthOfTextAtSize(current+' '+word,size)>w){lines.push(current);current=word;}else current+=(current?' ':'')+word;}lines.push(current);}return lines;}
@@ -189,7 +197,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     y-=5;
     if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}`);
     if(o.divider)paragraph(`${o.divisionMode==='split'?'Split':'Divider'} input from bottom: ${length(o.divider*25.4)} ${units}.`);
-    const machining=[['Hinges from stile end',result.hinges.map(length).join(', ')],...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
+    const machining=[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')],...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
     const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12},notes=cutSheetNotes(result);
     const paragraphHeight=(value,size=8.5)=>wrap(value,width,size).length*(size+4)+3;
     const remaining=16+factsLayout(machining,machiningOptions).height+3+notes.reduce((sum,note)=>sum+paragraphHeight(note,8),0)+(o.notes?paragraphHeight(`Shop notes: ${o.notes}`):0)+completionLayout([o]).height+12;
