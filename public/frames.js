@@ -16,25 +16,45 @@ export const frameStyle=o=>FRAME_STYLES.find(f=>f.id===(o.frameStyle||o.frame))|
 // these confirmed aliases, leaving unsupported or mismatched canonical styles invalid.
 export function normalizeFrame(o){const profile={MS:'ST',MZ:'ZF',EL:'ZF'}[o?.frameStyle];return profile?{...o,frame:profile}:o;}
 export const frameNotice=o=>frameStyle(o).profile?'':`${frameStyle(o).name}: visual preview only. Cutting deductions still need confirmation before a cut sheet can be generated.`;
+export const FRAME_EDGES=['top','bottom','left','right'];
+export const FRAME_SETUPS={'4W':'Same frame on all four sides','4S':'Standard (L) frame on bottom',CW:'Custom · choose each side'};
+export const frameSetupLabel=o=>FRAME_SETUPS[o.sides]||({'3W':'3 sides · saved window setup','3D':'3 sides · saved door setup'}[o.sides]||o.sides);
+export function frameSideStyles(o){
+ const selected=frameStyle(o);
+ return Object.fromEntries(FRAME_EDGES.map(side=>[side,o.sides==='CW'?FRAME_STYLES.find(f=>f.id===o.frameSides?.[side])||selected:o.sides==='4S'&&side==='bottom'?FRAME_STYLES[0]:side==='bottom'&&['3W','3D'].includes(o.sides)?null:selected]));
+}
+export function frameDescription(o){
+ if(o.sides==='CW')return FRAME_EDGES.map(side=>`${side[0].toUpperCase()+side.slice(1)}: ${frameSideStyles(o)[side].name.replace(/ frame$/i,'')}`).join('; ');
+ return frameStyle(o).name+(o.sides==='4S'?' · Standard (L) bottom':'');
+}
+// The workbook has one main profile and an ST override for each edge.
+// Other profile codes in a custom cell are silently treated as the main profile.
+export function frameCuttingPlan(o){
+ const styles=frameSideStyles(o),profiles=[...new Set(Object.values(styles).filter(Boolean).map(f=>f.profile))],main=profiles.find(p=>p!=='ST')||'ST';
+ if(o.sides==='CW'&&profiles.filter(p=>p!=='ST').length>1)return {warning:'This custom setup mixes different trim profiles. Confirm its frame cuts before sending it to Production.'};
+ if(['CW','4S'].includes(o.sides)&&profiles.includes('DS')&&profiles.includes('ST'))return {warning:'Designer with a Standard (L) side needs its sill cuts confirmed. The original program uses a special Designer sill.'};
+ return {profile:o.sides==='CW'?main:o.frame,sides:Object.fromEntries(FRAME_EDGES.map(side=>[side,styles[side]?.profile||'']))};
+}
 // Standard profiles have a plain square face. Decorative profiles retain moulding.
 // Three-sided frames omit the sill in either construction.
 export function frameShapes(o,{left,top,width,height}){
+ if(['CW','4S'].includes(o.sides))return Object.entries(frameSideStyles(o)).flatMap(([side,style])=>frameShapes({frame:style.profile,frameStyle:style.id,sides:'4W'},{left,top,width,height}).filter(shape=>shape.side===side));
  const style=frameStyle(o),shapes=[],right=left+width,bottom=top+height,three=o.sides==='3W'||o.sides==='3D';
  if(style.square){
-  const b=style.bands[0],face=(x,y,w,h)=>shapes.push({kind:'polygon',points:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]],fill:'#fff',tone:'#888',weight:.65});
-  face(left-b,top-b,width+2*b,b);
-  face(left-b,top,b,height);
-  face(right,top,b,height);
-  if(!three)face(left-b,bottom,width+2*b,b);
+  const b=style.bands[0],face=(x,y,w,h,side)=>shapes.push({kind:'polygon',points:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]],fill:'#fff',tone:'#888',weight:.65,side,frameStyle:style.id});
+  face(left-b,top-b,width+2*b,b,'top');
+  face(left-b,top,b,height,'left');
+  face(right,top,b,height,'right');
+  if(!three)face(left-b,bottom,width+2*b,b,'bottom');
   return shapes;
  }
  for(const [i,b]of style.bands.entries()){
   const fill=i%2?'#f1f1f1':'#fff',tone=i===0?'#666':'#aaa';
-  const poly=points=>shapes.push({kind:'polygon',points,fill,tone,weight:i===0?.85:.45});
-  if(style.id!=='HS')poly([[left-b,top-b],[right+b,top-b],[right,top],[left,top]]);
-  poly([[left-b,top-b],[left,top],[left,bottom],[left-b,bottom+(three?0:b)]]);
-  poly([[right,top],[right+b,top-b],[right+b,bottom+(three?0:b)],[right,bottom]]);
-  if(!three&&style.id!=='HS')poly([[left,bottom],[right,bottom],[right+b,bottom+b],[left-b,bottom+b]]);
+  const poly=(points,side)=>shapes.push({kind:'polygon',points,fill,tone,weight:i===0?.85:.45,side,frameStyle:style.id});
+  if(style.id!=='HS')poly([[left-b,top-b],[right+b,top-b],[right,top],[left,top]],'top');
+  poly([[left-b,top-b],[left,top],[left,bottom],[left-b,bottom+(three?0:b)]],'left');
+  poly([[right,top],[right+b,top-b],[right+b,bottom+(three?0:b)],[right,bottom]],'right');
+  if(!three&&style.id!=='HS')poly([[left,bottom],[right,bottom],[right+b,bottom+b],[left-b,bottom+b]],'bottom');
  }
  return shapes;
 }

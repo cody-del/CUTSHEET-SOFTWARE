@@ -5,7 +5,7 @@ const defaults={id:'new-opening',name:'Opening 2',width:null,height:null,quantit
 const prices={shuttersmart:{rateCents:2500,minimumAreaHundredths:0,version:2}};
 
 test('new quote lines inherit product options but reset opening-specific values',()=>{
- const previous={...defaults,id:'old',name:'Kitchen',productId:'shuttersmart',width:51.875,height:72,quantity:3,frame:'TR',color:'OW',tilt:'Front',louver:3,mount:'O',sizeMethod:'W',sides:'3W',left:2,right:2,divider:30,notes:'Only for kitchen',pricing:{rateCents:1000},unitPrice:12345};
+ const previous={...defaults,id:'old',name:'Kitchen',productId:'shuttersmart',width:51.875,height:72,quantity:3,frame:'TR',color:'OW',tilt:'Front',louver:3,mount:'O',sizeMethod:'W',sides:'4S',left:2,right:2,divider:30,notes:'Only for kitchen',pricing:{rateCents:1000},unitPrice:12345};
  const snapshot=structuredClone(previous),line=nextQuoteLine(previous,{productId:'shuttersmart'},defaults,prices);
  for(const key of ['productId','frame','color','tilt','louver','mount','sizeMethod','sides','left','right'])assert.equal(line[key],previous[key]);
  assert.equal(line.id,'new-opening');assert.equal(line.name,'Opening 2');assert.equal(line.width,null);assert.equal(line.height,null);assert.equal(line.quantity,1);assert.equal(line.divider,0);assert.equal(line.notes,'');assert.equal(line.unitPrice,undefined);

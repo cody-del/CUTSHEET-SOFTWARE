@@ -1,4 +1,4 @@
-import {frameStyle} from './frames.js';
+import {frameDescription,frameSetupLabel} from './frames.js';
 
 export function firstLouverHole(result){
   const value=result?.machining?.find(m=>m.label==='First louver hole from stile top')?.value;
@@ -14,8 +14,8 @@ export function cutSheetFacts(o,result,{measurement=String,length=n=>n.toFixed(2
   return [
     ['Width × height',`${measurement(o.width)} × ${measurement(o.height)} ${inputUnits}`],
     ['Quantity & layout',`${o.quantity} ${o.quantity===1?'unit':'units'} · ${layout}`],
-    ['Frame',frameStyle(o).name],
-    ['Mount & sides',`${o.mount==='I'?'Inside':'Outside'} · ${o.sides==='4W'?'4 sides':o.sides==='3D'?'3 sides, door':'3 sides'}`],
+    ['Frame',frameDescription(o)],
+    ['Mount & sides',`${o.mount==='I'?'Inside':'Outside'} · ${o.sides==='CW'?'Custom (CW)':o.sides==='4S'?'Standard bottom (4S)':o.sides==='4W'?'All 4 sides (4W)':frameSetupLabel(o)}`],
     ['Finish & louvers',`${{W:'White',OW:'Off-white',SC:'Swiss coffee'}[o.color]} · ${o.louver} in`],
     ['Tilt',`${o.tilt==='Smart'?'Smart View':o.tilt+' tilt'}${o.divisionMode==='split'?' · split rod':''}`],
     ['Measurement type',{W:'Window opening',S:'Shutter size',F:'Outside frame'}[o.sizeMethod]],

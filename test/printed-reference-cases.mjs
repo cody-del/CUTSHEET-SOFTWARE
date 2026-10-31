@@ -40,3 +40,13 @@ export const printedReferences=[
       ['Left frame',null,1562.1,1,'LEFT TRF'],['Right frame',null,1562.1,1,'RIGHT TRF'],['T-post assembly',null,1516.1,1,'ST FRAME'],['Tiltrod',null,1242,2,'Back']],
     hinges:[46,519,993,1466],machining:{'First louver hole from stile top':339.5,'Section 1 louver midpoint':390.2,'Section 2 louver midpoint':387},gap:3.8,louversPerPanel:15}
 ];
+// User-supplied custom example: Trim left/right; Standard top/bottom.
+// The source print header says 4W despite the mixed frame rows; the explicit
+// side inputs are CW. Keep this case last so older indexed fixtures stay stable.
+printedReferences.push({id:'custom-trim-sides-standard-top-bottom',source:'PRINT SHEET - 2026-10-31T094231.621.pdf',
+  opening:{...base,width:34.75,height:65.125,right:0,frameStyle:'TR',sides:'CW',frameSides:{top:'ST',bottom:'ST',left:'TR',right:'TR'}},
+  parts:[['Louvers',null,735.9,16,'WITH ALUMINUM 4 INCH BACK'],['Aluminum insert',null,713.9,16,''],
+    ['Stile · flat',null,1604.2,2,'4 INCH FLAT'],['Top rail',null,737.9,1,'LARGE L'],['Bottom rail',null,737.9,1,'MEDIUM M'],
+    ['Top frame',null,882.7,1,'TOP STD'],['Bottom frame',null,882.7,1,'BOTTOM STD'],
+    ['Left frame',null,1654.2,1,'LEFT TRF'],['Right frame',null,1654.2,1,'RIGHT TRF'],['Tiltrod',null,1345,1,'Back']],
+  hinges:[46,550,1054,1558],machining:{'First louver hole from stile top':343,'Louver midpoint':367.9,'PUSHNUT POS. FROM BOTTOM':752.2},gap:7.4,louversPerPanel:16});

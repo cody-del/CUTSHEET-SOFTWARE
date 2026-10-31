@@ -1,5 +1,5 @@
 import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
-import {FRAME_STYLES,frameStyle,frameNotice,normalizeFrame} from './public/frames.js';
+import {FRAME_STYLES,FRAME_EDGES,frameStyle,frameNotice,frameCuttingPlan,normalizeFrame} from './public/frames.js';
 import workbook from './source/workbook.json' with {type:'json'};
 import {WorkbookEngine} from './engine.mjs';
 export const VERSION='20170211FCNew / app 0.5';
@@ -52,7 +52,10 @@ export function validateOpening(o,{allowIncomplete=false}={}){
   if(o.frameStyle!==undefined&&(!FRAME_STYLES.some(f=>f.id===o.frameStyle)||(frameStyle(o).profile&&frameStyle(o).profile!==o.frame)))throw new ValidationError('Choose a valid frame style matching the cutting profile.');
   if(!Object.hasOwn(FRAMES,o.frame))throw new ValidationError('Choose a supported frame.');
   if(![3,4].includes(o.louver))throw new ValidationError('Choose 3 or 4 inch louvers.');
-  for(const [key,allowed]of Object.entries({mount:['I','O'],sizeMethod:['W','S','F'],sides:['4W','3W','3D'],color:['W','OW','SC'],tilt:['Smart','Front','Back'],stile:['Flat','Reg']}))if(!allowed.includes(o[key]))throw new ValidationError(`Invalid ${key}.`);
+  for(const [key,allowed]of Object.entries({mount:['I','O'],sizeMethod:['W','S','F'],sides:['4W','4S','CW','3W','3D'],color:['W','OW','SC'],tilt:['Smart','Front','Back'],stile:['Flat','Reg']}))if(!allowed.includes(o[key]))throw new ValidationError(`Invalid ${key}.`);
+  if(o.sides==='CW'||o.frameSides!==undefined){
+    if(!o.frameSides||typeof o.frameSides!=='object'||Array.isArray(o.frameSides)||Object.keys(o.frameSides).length!==4||FRAME_EDGES.some(side=>!FRAME_STYLES.some(f=>f.available!==false&&f.id===o.frameSides[side])))throw new ValidationError('Choose a frame for the top, bottom, left and right sides.');
+  }
   if(o.sizeMethod==='F'&&o.mount!=='O')throw new ValidationError('Outside frame measurements require an outside mount.');
   if(o.divisionMode!==undefined&&!['divider','split'].includes(o.divisionMode))throw new ValidationError('Choose divider rail or split tilt rod mode.');
   numeric(o.divider??0,'Divider position',0,o.height??Number.MAX_SAFE_INTEGER);
@@ -63,6 +66,10 @@ export function validateOpening(o,{allowIncomplete=false}={}){
 function openingEngine(o){
   const controls={A15:1,B15:o.quantity,C15:o.color,D15:o.louver,E15:o.tilt,F15:o.mount,G15:hasTposts(o)?'TP':'SF',H15:o.frame,I15:o.sides,J15:o.sizeMethod,K15:o.width,L15:o.height,M15:hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.left,0):o.left,N15:hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.right,0):o.right,O15:o.divider??0,P15:0,Q15:'',R15:'White',S15:o.stile,T15:'',G31:0,J31:0,M31:0,P31:0,W5:0,W6:0,W7:0,W8:0,W9:0,W14:0};
   const overrides=Object.fromEntries(Object.entries(controls).map(([c,v])=>['INPUT SCREEN!'+c,v]));
+  // Reset all four custom controls on every calculation, including ordinary jobs.
+  const framing=frameCuttingPlan(o);
+  overrides['INPUT SCREEN!H15']=framing.profile;
+  for(const [side,cell]of Object.entries({top:'I18',bottom:'I23',left:'H21',right:'J21'}))overrides['INPUT SCREEN!'+cell]=o.sides==='CW'?framing.sides[side]:'';
   // Product family is explicit; never inherit a prior job's specialty settings.
   Object.assign(overrides,{'CALCULATION!J29':1,'CALCULATION!H15':o.divisionMode==='split'?2:1,'CALCULATION!P1':1,'DATA ENTRY CALC!B15':false});
   // Clear every T-post input on every request; section data must not leak between jobs.
@@ -84,7 +91,8 @@ function louverLayout(o,e){
 }
 export function calculate(o){
   o=validateOpening(o);
-  if(frameNotice(o))return {parts:[],hinges:[],machining:[],warnings:[frameNotice(o)],reviewNotes:[],version:VERSION,status:'preview-only'};
+  const frameWarning=frameNotice(o)||frameCuttingPlan(o).warning;
+  if(frameWarning)return {parts:[],hinges:[],machining:[],warnings:[frameWarning],reviewNotes:[],version:VERSION,status:'preview-only'};
   const e=openingEngine(o);
   if(hasTposts(o))return calculateTposts(o,e);
   const p=c=>e.cell('PRINT SHEET',c),warnings=[];

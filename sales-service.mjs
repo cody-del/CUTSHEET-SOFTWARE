@@ -48,7 +48,7 @@ function openings(value,record,pricingFor,allowIncomplete=false){
     requireProduct(identity);
     const productChanged=previous&&(productId(identity)!==productId(lineProduct(previous,record))||identity.productLabel!==lineProduct(previous,record).productLabel);
     if(productChanged&&Number.isFinite(previous.width)&&Number.isFinite(previous.height))fail(400,'Add a new line item to choose a different product.');
-    const keys=supportsCutSheets(identity)?['id','name','width','height','quantity','left','right','louver','frame','frameStyle','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts']:['id','name','width','height','quantity','notes'];
+    const keys=supportsCutSheets(identity)?['id','name','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts']:['id','name','width','height','quantity','notes'];
     const o=Object.fromEntries(keys.filter(k=>raw[k]!==undefined).map(k=>[k,structuredClone(raw[k])]));
     if(raw.productId!==undefined||previous?.productId!==undefined){
       o.productId=productId(identity);

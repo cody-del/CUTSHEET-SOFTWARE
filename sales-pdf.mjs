@@ -1,7 +1,7 @@
 import {orderFinancials} from './public/order-finance.js';
 import {productName,lineProduct,isManufacturingLine} from './public/products.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
-import {frameStyle} from './public/frames.js';
+import {frameDescription,frameSetupLabel} from './public/frames.js';
 const clean=value=>String(value??'').normalize('NFKD').replace(/[–—]/g,'-').replace(/×/g,'x').replace(/·/g,' / ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x20-\x7e\n]/g,'');
 const money=cents=>cents==null?'Not priced':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
 
@@ -71,7 +71,7 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
   details.push(productName(lineProduct(o,q)),`${o.width}" W x ${o.height}" H`);
   if(isManufacturingLine(o,q)){
    const config=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' / T / '):'L'.repeat(o.left)+'R'.repeat(o.right);
-   details.push([frameStyle(o).name,o.mount==='I'?'Inside mount':'Outside mount',o.sides].filter(Boolean).join(' / '));
+   details.push([frameDescription(o),o.mount==='I'?'Inside mount':'Outside mount',frameSetupLabel(o)].filter(Boolean).join(' / '));
    details.push([({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],o.louver+'" louvers',o.tilt==='Smart'?'Smart View':o.tilt+' tilt',config].filter(Boolean).join(' / '));
    if(o.divider)details.push('Divider rail: '+o.divider+'"');
   }else if(o.notes)details.push(o.notes);

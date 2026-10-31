@@ -18,7 +18,7 @@ function fields(raw){
   const seen=new Set(),openings=raw.openings.map(item=>{
     identifier(item?.id);if(seen.has(item.id))fail(400,'Opening identifiers must be unique.');seen.add(item.id);
     if(!supportsCutSheets(item))fail(422,CUT_SHEETS_ONLY);
-    const keys=['id','name','width','height','quantity','left','right','louver','frame','frameStyle','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts'];
+    const keys=['id','name','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts'];
     const o=Object.fromEntries(keys.filter(k=>item[k]!==undefined).map(k=>[k,structuredClone(item[k])]));
     o.name=text(o.name,'opening name',80);if(!o.name)fail(400,'Enter an opening name.');o.notes=text(o.notes||'','opening notes',1200);
     Object.assign(o,validateOpening(o,{allowIncomplete:true}));if(completeOpening(o))calculate(o);return o;

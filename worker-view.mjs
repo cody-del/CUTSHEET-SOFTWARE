@@ -10,8 +10,9 @@ function lineView(line){
  return {...partView(line),...pick(line,['id','completed','status']),shortage:line.shortage?{...pick(line.shortage,['status','note','createdAt','updatedAt']),by:'Workshop'}:null};
 }
 function openingView(opening){
- const input=pick(opening.input,['id','name','productId','width','height','quantity','left','right','louver','frame','frameStyle','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes']);
+ const input=pick(opening.input,['id','name','productId','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes']);
  if(opening.input.tposts)input.tposts=postView(opening.input.tposts);
+ if(input.frameSides)input.frameSides=pick(input.frameSides,['top','bottom','left','right']);
  const result=pick(opening.result,['hinges','panelWidth','panelHeight','louversPerPanel','gap','lightGapWarning','warnings','reviewNotes','version','status']);
  result.parts=(opening.result.parts||[]).map(partView);
  result.machining=(opening.result.machining||[]).map(m=>pick(m,['label','value']));
