@@ -6,6 +6,7 @@ import {salesOperations,runSales,orderJob} from './sales-service.mjs';
 import {progress,production,productionChecks,openingCheckStatus,openingProduction} from './public/shop-state.js';
 import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
 import {workerResponse} from './worker-view.mjs';
+import {revisionOperations,runRevision} from './job-revisions.mjs';
 
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
 const equal=(a,b)=>timingSafeEqual(Buffer.from(hash(a)),Buffer.from(hash(b)));
@@ -26,7 +27,7 @@ function updateCompletion(job,time){
   job.productionCompletedAt=production(job).key==='complete'?(job.productionCompletedAt||time):null;
 }
 
-function productionView(state,job){const source=state.orders?.[job.id]||state.drafts?.[job.id];return {...job,displayName:source?productionName(source):job.displayName||job.name};}
+function productionView(state,job){const {revisions,lastRevision,...current}=job;const source=state.orders?.[job.id]||state.drafts?.[job.id];return {...current,displayName:source?productionName(source):job.displayName||job.name};}
 function releaseJob(state,data,a,time){
   let input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
@@ -103,6 +104,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           delete state.pairings[hash(code)];delete state.attempts[key];
           return {cookie:'shop',token,maxAge:180*86400};
         }
+        if(revisionOperations.includes(operation)){const a=requireActor(state,cookie,true);return runRevision(state,operation,data,a,time);}
         if(salesOperations.includes(operation)){const a=requireActor(state,cookie,true);return runSales(state,operation,data,time,release=>releaseJob(state,release,a,time),a.name);}
         if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));

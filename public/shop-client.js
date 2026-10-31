@@ -3,7 +3,7 @@ import {saveLogo} from './branding.js';
 import {accountFetch} from './account-storage.js';
 // Finish account/role validation before reading any cached owner responses.
 import './auth-guard.js';
-const READS=new Set(['company-get','session','sales','workspace','dashboard','jobs','sales-get','draft-get','job-get']);
+const READS=new Set(['company-get','session','sales','workspace','dashboard','jobs','sales-get','draft-get','job-get','job-revision-get']);
 const AUTH=new Set(['login','logout','pair']);
 const KEY='cutsheet-read-cache-v2',REVISION='cutsheet-cache-revision-v1';
 export const FRESH_MS=30000,DISPLAY_MS=5*60000;

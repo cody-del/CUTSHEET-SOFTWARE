@@ -4,13 +4,14 @@ import {createPDF} from './pdf.mjs';
 import {ShopError} from './shop-service.mjs';
 import {ValidationError} from './calculations.mjs';
 import {workspaceOperations} from './workspace-service.mjs';
+import {revisionOperations,RevisionError} from './job-revisions.mjs';
 
 const json=(status,data,headers={})=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',...headers}});
 const cookieNames={owner:'cutsheet_owner',shop:'cutsheet_shop'};
 export function shopHandler(service) {
   return async request=>{
     const url=new URL(request.url),operation=url.pathname.split('/').pop();
-    if(![...salesOperations,...workspaceOperations,'sales-document','order-pdf','job-get','job-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
+    if(![...salesOperations,...workspaceOperations,...revisionOperations,'sales-document','order-pdf','job-get','job-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
     const read=['company-get','workspace','workspace-backup','sales','session','jobs','dashboard'].includes(operation);
     if(request.method!==(read?'GET':'POST'))return json(405,{error:read?'GET required.':'POST required.'});
     if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});
@@ -36,7 +37,7 @@ export function shopHandler(service) {
         if(data.units!==undefined&&!['mm','in'].includes(data.units))return json(400,{error:'Choose inches or millimeters.'});
         const {job}=await service.run('job-get',{id:data.id},cookie);
         if(job.held)return json(422,{error:'This order needs owner review before a cutting PDF can be printed.'});
-        const pdf=await createPDF({id:job.id,productId:'shuttersmart',name:job.name,number:job.number,customer:'',notes:job.notes,openings:job.openings.map(o=>o.input)},{units:data.units||'mm'});
+        const pdf=await createPDF({id:job.id,revision:job.revision,productId:'shuttersmart',name:job.name,number:job.number,customer:'',notes:job.notes,openings:job.openings.map(o=>o.input)},{units:data.units||'mm'});
         return new Response(pdf,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="cut-sheets.pdf"','Cache-Control':'no-store'}});
       }
       if(operation==='sales-document'||operation==='order-pdf'){
@@ -52,7 +53,7 @@ export function shopHandler(service) {
       if(result.cookie)return json(200,{ok:true},{'Set-Cookie':setCookie(result.cookie,result.token,result.maxAge)});
       return json(200,result);
     }catch(error){
-      if(error instanceof ShopError||error instanceof SalesError)return json(error.status,{error:error.message});
+      if(error instanceof ShopError||error instanceof SalesError||error instanceof RevisionError)return json(error.status,{error:error.message});
       if(error instanceof ValidationError)return json(422,{error:error.message});
       return json(503,{error:'Shop updates could not be saved. Check the connection and try again.'});
     }

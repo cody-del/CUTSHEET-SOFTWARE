@@ -93,3 +93,7 @@
 @media print{.editor-actions-sticky{display:none!important}}
 
 .frame-setup{max-width:640px;margin-bottom:22px}.frame-setup .field-help{margin:10px 0 0}.custom-frame-sides{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.custom-frame-sides .field{min-width:0}@media(max-width:600px){.custom-frame-sides{grid-template-columns:1fr}}
+
+.revision-opening{border-top:1px solid #dedede;padding:16px 0}.revision-opening h3{font-size:16px;margin:0 0 12px}.revision-opening ul{list-style:none;padding:0;margin:0}.revision-opening li{padding:10px 0}.revision-opening li span,.revision-opening li small{display:block;margin-top:5px}.revision-opening li small{color:#805800}
+
+#modal.revision-dialog[open]{display:flex;flex-direction:column;max-height:90vh;overflow:hidden;width:min(680px,calc(100vw - 32px))}#modal.revision-dialog .modal-body{overflow:auto;min-height:0}#modal.revision-dialog .modal-heading,#modal.revision-dialog .modal-footer{flex-shrink:0}

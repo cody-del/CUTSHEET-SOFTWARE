@@ -233,4 +233,4 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
   fail(404,'Unknown sales action.');
 }
 
-export function orderJob(order){requireCutSheets(order);return {productId:'shuttersmart',id:order.id,name:order.name,number:order.number,customer:contactName(order.customer).slice(0,120),notes:'',due:'',openings:orderManufacturingOpenings(order).map(o=>{const {pricing,...input}=o;return structuredClone(input);})};}
+export function orderJob(order){requireCutSheets(order);return {productId:'shuttersmart',id:order.id,name:order.name,number:order.number,revision:order.manufacturingRevision,customer:contactName(order.customer).slice(0,120),notes:'',due:'',openings:orderManufacturingOpenings(order).map(o=>{const {pricing,...input}=o;return structuredClone(input);})};}

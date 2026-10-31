@@ -19,7 +19,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   function wrap(s,w,size=9,font=regular){const lines=[];for(const paragraph of ascii(s).split('\n')){let current='';for(const word of paragraph.split(/\s+/)){if(font.widthOfTextAtSize(word,size)>w){if(current){lines.push(current);current='';}let part='';for(const ch of word){if(font.widthOfTextAtSize(part+ch,size)>w){lines.push(part);part='';}part+=ch;}current=part;continue;}if(current&&font.widthOfTextAtSize(current+' '+word,size)>w){lines.push(current);current=word;}else current+=(current?' ':'')+word;}lines.push(current);}return lines;}
   function rect(x,yy,w,h,color,border=false){page.drawRectangle({x,y:yy,width:w,height:h,color,...(border?{borderColor:line,borderWidth:.5}:{})});}
   function newPage(title=''){
-    page=pdf.addPage([612,792]);text('CUT SHEET',margin,759,9,bold);text(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date()),519,759,8,regular,muted);
+    page=pdf.addPage([612,792]);text('CUT SHEET'+(job.revision>1?' · REVISION '+job.revision+' · Replaces earlier copies':''),margin,759,9,bold);text(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date()),519,759,8,regular,muted);
     const jobLines=wrap(`${job.number||'Unnumbered job'}${job.customer?'   '+job.customer:''}`,width,9);
     jobLines.forEach((l,i)=>text(l,margin,742-i*11,9,regular,muted));y=724-(jobLines.length-1)*11;
     if(title){for(const l of wrap(title,width,16,bold)){text(l,margin,y,16,bold);y-=20;}}
