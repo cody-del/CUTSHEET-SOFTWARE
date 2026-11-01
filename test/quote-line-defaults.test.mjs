@@ -4,10 +4,18 @@ import {nextQuoteLine} from '../public/quote-line-defaults.js';
 const defaults={id:'new-opening',name:'Opening 2',width:null,height:null,quantity:1,left:1,right:1,louver:4,frame:'ST',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,divisionMode:'divider',notes:''};
 const prices={shuttersmart:{rateCents:2500,minimumAreaHundredths:0,version:2}};
 
+test('ShutterSmart additions always use shutter size regardless of previous mount or measurement basis',()=>{
+ for(const mount of ['I','O'])for(const sizeMethod of ['S','W','F',undefined]){
+  const line=nextQuoteLine({...defaults,mount,sizeMethod}, {productId:'shuttersmart'},defaults,prices);
+  assert.equal(line.sizeMethod,'S');assert.equal(line.mount,mount);
+ }
+});
+
 test('new quote lines inherit product options but reset opening-specific values',()=>{
  const previous={...defaults,id:'old',name:'Kitchen',productId:'shuttersmart',width:51.875,height:72,quantity:3,frame:'TR',color:'OW',tilt:'Front',louver:3,mount:'O',sizeMethod:'W',sides:'4S',left:2,right:2,divider:30,notes:'Only for kitchen',pricing:{rateCents:1000},unitPrice:12345};
  const snapshot=structuredClone(previous),line=nextQuoteLine(previous,{productId:'shuttersmart'},defaults,prices);
- for(const key of ['productId','frame','color','tilt','louver','mount','sizeMethod','sides','left','right'])assert.equal(line[key],previous[key]);
+ for(const key of ['productId','frame','color','tilt','louver','mount','sides','left','right'])assert.equal(line[key],previous[key]);
+ assert.equal(line.sizeMethod,'S');
  assert.equal(line.id,'new-opening');assert.equal(line.name,'Opening 2');assert.equal(line.width,null);assert.equal(line.height,null);assert.equal(line.quantity,1);assert.equal(line.divider,0);assert.equal(line.notes,'');assert.equal(line.unitPrice,undefined);
  assert.equal(line.pricing.rateCents,2500);assert.deepEqual(previous,snapshot);
 });

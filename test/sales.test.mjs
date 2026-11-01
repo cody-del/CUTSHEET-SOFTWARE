@@ -21,6 +21,17 @@ async function quote(f,{priced=true,items=[opening]}={}){await f.run('contact-sa
 
 async function confirmForProduction(f,order){return (await f.run('order-confirm',confirmation(order,quoteTotals(order).total,0))).order;}
 
+test('ShutterSmart quote saves persist shutter size and reject window or outside-frame inputs',async t=>{
+ const f=await fixture(t);let q=await quote(f,{items:[{...opening,sizeMethod:undefined}]});
+ assert.equal(q.openings[0].sizeMethod,'S');
+ for(const mount of ['I','O']){
+  for(const sizeMethod of ['W','F'])await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{...opening,mount,sizeMethod}]}}),/ShutterSmart uses Shutter size/);
+  assert.deepEqual((await f.run('sales-get',{kind:'quote',id:q.id})).record,q);
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{...opening,mount}]}}));
+  assert.equal(q.openings[0].sizeMethod,'S');assert.equal(q.openings[0].mount,mount);
+ }
+});
+
 test('contacts and pricing persist across service instances; empty legacy workshop upgrades without losing jobs',async t=>{const f=await fixture(t);await quote(f);const second=createShopService({store:fileStore(f.path),password,secret});const data=await second.run('sales',{},f.owner);assert.equal(data.contacts[0].email,contact.email);assert.equal(data.pricing.rateCents,2500);assert.equal(data.quotes[0].openingCount,1);const state=JSON.parse(await readFile(f.path));assert.ok(state.jobs);assert.ok(state.pairings);assert.equal(state.schema,1);});
 
 test('contacts, prices, quote PDFs and orders are inaccessible to anonymous and paired shop clients',async t=>{const f=await fixture(t),q=await quote(f);const {code}=await f.run('pairing',{name:'Saw'}),paired={shop:(await f.service.run('pair',{code})).token};for(const op of salesOperations){await assert.rejects(f.service.run(op),e=>e.status===401);await assert.rejects(f.service.run(op,{},paired),e=>e.status===403);}const handler=shopHandler(f.service);for(const op of ['sales-document','order-pdf']){const req=cookie=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({id:q.id,kind:'quote'})});assert.equal((await handler(req(''))).status,401);assert.equal((await handler(req('cutsheet_shop='+paired.shop))).status,403);}});

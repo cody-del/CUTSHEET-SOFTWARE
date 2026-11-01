@@ -67,7 +67,7 @@ function openings(value,record,pricingFor,allowIncomplete=false){
       o.pricing=structuredClone(productChanged?pricingFor(identity):previous?.pricing??(previous&&productId(identity)===productId(record)?record.pricing:pricingFor(identity)));
     }
     o.name=text(o.name,'opening name',80,true);o.notes=text(o.notes||'','opening notes',1200);
-    if(supportsCutSheets(identity)){Object.assign(o,validateOpening(o,{allowIncomplete}));if(completeOpening(o))calculate(o);}
+    if(supportsCutSheets(identity)){Object.assign(o,validateOpening(o,{allowIncomplete,shutterSizeOnly:true}));if(completeOpening(o))calculate(o);}
     else{
       for(const key of ['width','height'])if(!(allowIncomplete&&o[key]==null)&&(typeof o[key]!=='number'||!Number.isFinite(o[key])||o[key]<=0||o[key]>10000))fail(400,'Enter dimensions greater than zero and no larger than 10,000 inches.');
       if(!Number.isInteger(o.quantity)||o.quantity<1||o.quantity>100)fail(400,'Quantity must be a whole number between 1 and 100.');

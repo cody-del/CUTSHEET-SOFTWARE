@@ -20,10 +20,14 @@ export const hasTposts=o=>o?.tposts!=null;
 export const panelCount=o=>hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.left+s.right,0):o.left+o.right;
 export const configuration=o=>hasTposts(o)?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
 export const completeOpening=o=>Number.isFinite(o?.width)&&Number.isFinite(o?.height)&&(!o.tposts||o.tposts.positions.every(Number.isFinite));
-export function validateOpening(o,{allowIncomplete=false}={}){
+export function validateOpening(o,{allowIncomplete=false,shutterSizeOnly=false}={}){
   o=normalizeFrame(o);
   if(!o||typeof o!=='object')throw new ValidationError('An opening is required.');
   if(!supportsCutSheets(o))throw new ValidationError(CUT_SHEETS_ONLY);
+  if(shutterSizeOnly){
+    if(o.sizeMethod!=null&&o.sizeMethod!=='S')throw new ValidationError('ShutterSmart uses Shutter size for inside and outside mounts. Reload the editor before saving.');
+    o={...o,sizeMethod:'S'};
+  }
   if(!allowIncomplete||o.width!=null)numeric(o.width,'Width (inches)',1,hasTposts(o)?Number.MAX_SAFE_INTEGER:106);
   if(!allowIncomplete||o.height!=null)numeric(o.height,'Height (inches)',1,114);
   numeric(o.quantity,'Quantity',1,100,true);

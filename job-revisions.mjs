@@ -21,7 +21,7 @@ function inputs(items){
   o.name=o.name.trim();if(o.notes===undefined)o.notes='';
   if(typeof o.notes!=='string')fail(400,'Enter valid shop notes.');
   if(o.tposts)o.tposts={construction:o.tposts.construction,positions:o.tposts.positions,sections:o.tposts.sections?.map(s=>({left:s.left,right:s.right}))};
-  return validateOpening(o);
+  return validateOpening(o,{shutterSizeOnly:true});
  });
 }
 const materialInput=({id,name,notes,productId,...rest})=>rest;

@@ -21,6 +21,15 @@ async function setup(t,{draft=true}={}){
  return {service,run,owner,shop,path};
 }
 const request=(job,openings,id='revision-request')=>({id:job.id,revision:job.revision||1,version:job.version,requestId:id,openings});
+
+test('alternate measurement types cannot revise a released cut sheet or change its existing measurements',async t=>{
+ const f=await setup(t),{job}=await f.run('job-get',{id:'draft'});
+ for(const mount of ['I','O'])for(const sizeMethod of ['W','F']){
+  const openings=job.openings.map(o=>({...o.input,mount,sizeMethod}));
+  for(const op of ['job-revision-preview','job-revise'])await assert.rejects(f.run(op,request(job,openings)),/ShutterSmart uses Shutter size/);
+ }
+ assert.deepEqual((await f.run('job-get',{id:'draft'})).job,job);
+});
 async function mark(f,job,index,name,status='cut'){
  const line=job.openings[index].lines.find(l=>l.name===name);
  return (await f.service.run('line',{id:job.id,version:job.version,lineId:line.id,status,...(status==='partial'?{completed:1,outOfMaterial:true,note:'Need material'}:{})},f.shop)).job;

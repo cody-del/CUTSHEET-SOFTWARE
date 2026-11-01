@@ -21,7 +21,7 @@ function fields(raw){
     const keys=['id','name','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts'];
     const o=Object.fromEntries(keys.filter(k=>item[k]!==undefined).map(k=>[k,structuredClone(item[k])]));
     o.name=text(o.name,'opening name',80);if(!o.name)fail(400,'Enter an opening name.');o.notes=text(o.notes||'','opening notes',1200);
-    Object.assign(o,validateOpening(o,{allowIncomplete:true}));if(completeOpening(o))calculate(o);return o;
+    Object.assign(o,validateOpening(o,{allowIncomplete:true,shutterSizeOnly:true}));if(completeOpening(o))calculate(o);return o;
   });
   const due=raw.due||'';if(due&&(!/^\d{4}-\d{2}-\d{2}$/.test(due)||!Number.isFinite(Date.parse(due+'T12:00:00Z'))||new Date(due+'T12:00:00Z').toISOString().slice(0,10)!==due))fail(400,'Enter a valid target date.');
   return {productId:'shuttersmart',name,number,customer:text(raw.customer||'','customer'),notes:text(raw.notes||'','shop notes',1200),due,archived:!!raw.archived,openings};

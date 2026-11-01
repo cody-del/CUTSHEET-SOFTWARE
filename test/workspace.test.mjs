@@ -9,6 +9,19 @@ import {shopHandler} from '../shop-api.mjs';
 const opening={id:'opening-1',name:'Front window',width:36,height:59.5,quantity:1,left:1,right:1,louver:4,frame:'TR',sides:'4W',mount:'I',sizeMethod:'S',color:'W',tilt:'Back',stile:'Flat',divider:0,notes:''};
 const fields={name:'Saved draft',number:'DRAFT-001',customer:'Example customer',notes:'Shop instructions',due:'',archived:false,openings:[opening]};
 const password='owner-test-password',secret='test-session-key-more-than-32-characters';
+
+test('drafts keep shutter size for both mounts and reject stale alternate measurement types',async t=>{
+ const {service}=await setup(t);
+ for(const mount of ['I','O']){
+  const id='fixed-'+mount;
+  let {draft}=await service.run('draft-save',{id,version:0,fields:{...fields,openings:[{...opening,mount,sizeMethod:undefined}]}});
+  assert.equal(draft.openings[0].sizeMethod,'S');assert.equal(draft.openings[0].mount,mount);
+  for(const sizeMethod of ['W','F'])await assert.rejects(service.run('draft-save',{id,version:draft.version,fields:{...fields,openings:[{...opening,mount,sizeMethod}]}}),/ShutterSmart uses Shutter size/);
+  assert.deepEqual((await service.run('draft-get',{id})).draft,draft);
+  ({draft}=await service.run('draft-save',{id,version:draft.version,fields:{...fields,openings:[{...opening,mount:mount==='I'?'O':'I'}]}}));
+  assert.equal(draft.openings[0].sizeMethod,'S');
+ }
+});
 async function setup(t,local=true){const directory=await mkdtemp(join(tmpdir(),'workspace-test-'));t.after(()=>rm(directory,{recursive:true,force:true}));const path=join(directory,'state.json');return {path,service:createShopService({store:fileStore(path),local,password,secret})};}
 test('shared drafts persist across instances, reject stale changes, and strip client metadata',async t=>{
  const {service,path}=await setup(t);const {draft}=await service.run('draft-save',{id:'draft-1',version:0,fields:{...fields,unitPrices:{secret:123},openings:[{...opening,pricing:{rateCents:1}}]}});
