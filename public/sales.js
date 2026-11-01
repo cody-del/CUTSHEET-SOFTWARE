@@ -5,7 +5,7 @@ import './auth-guard.js';
 import {financialMetrics,paymentFields,orderConfirmationLabel,orderPaymentPage,orderFinancePanel} from './order-ui.js';
 import {workspaceNav,backLink,rememberReturn,remember,sessionValue,keepScroll,restoreScroll,installNavigationGuard,guardedNavigation,navigateState} from './workspace-nav.js';
 import {quoteBuilderURL} from './quote-product.js';
-import {PRODUCTS,productName,lineProduct,isManufacturingLine,hasManufacturingLines,manufacturingOpenings,quoteProductNames} from './products.js';
+import {PRODUCTS,productId,productName,lineProduct,isManufacturingLine,hasManufacturingLines,manufacturingOpenings,quoteProductNames} from './products.js';
 import {contactAddressFields} from './contact-address.js';
 import {productionStages} from './shop-state.js';
 import {shopRequest,cachedShop,warmWorkspace} from './shop-client.js';
