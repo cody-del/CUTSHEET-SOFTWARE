@@ -8,10 +8,11 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "build": "npm test",
+    "build": "node scripts/build-shop-offline.mjs && npm test",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
+    "@netlify/blobs": "11.1.7",
     "@supabase/supabase-js": "2.118.0",
     "pdf-lib": "^1.17.1",
     "pg": "^8.16.3"

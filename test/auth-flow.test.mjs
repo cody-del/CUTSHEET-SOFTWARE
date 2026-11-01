@@ -51,7 +51,7 @@ async function authPage(path,{completeError=null,passwordError=null}={}){
   '#account-error':{textContent:''},'#account-status':{textContent:''},'#open-workspace':{},
  };
  const context={
-  URL,URLSearchParams,AbortSignal,crypto:{randomUUID},location,
+  offlineShopStore:{clear:async()=>{}},URL,URLSearchParams,AbortSignal,crypto:{randomUUID},location,
   history:{replaceState(_state,_title,value){historyURLs.push(value);location.href=new URL(value,location).href;}},
   document:{querySelector:selector=>fields[selector]||null},
   sessionStorage:{removeItem(){}},localStorage:{removeItem(){},setItem(){}},clearPrivateCache(){},

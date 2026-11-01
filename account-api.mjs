@@ -46,7 +46,7 @@ export function accountShopHandler({store,auth,secret}){
   }catch(e){return json(e.status||503,{error:e instanceof AccessError?e.message:'Private workspace access is temporarily unavailable. Please try again.'});}
  }
  async function protect(request,next){
-  const headers=new Headers();try{const identity=await principal(request,headers);if(!identity?.actor)return json(401,{error:'Sign in to use the cut-sheet tools.'});if(request.headers.get('x-cutsheet-account')!==identity.ownerId)return json(409,{error:'Your signed-in account changed. Reload this page.'});const response=await next(request);for(const c of headers.getSetCookie())response.headers.append('Set-Cookie',c);return response;}catch{return json(503,{error:'Account access is temporarily unavailable.'});}
+  const headers=new Headers();try{const identity=await principal(request,headers);if(!identity?.actor)return json(401,{error:'Sign in to use the cut-sheet tools.'});if(request.headers.get('x-cutsheet-account')!==identity.ownerId)return json(409,{error:'Your signed-in account changed. Reload this page.'});const response=await next(request,identity);for(const c of headers.getSetCookie())response.headers.append('Set-Cookie',c);return response;}catch{return json(503,{error:'Account access is temporarily unavailable.'});}
  }
  return {handler,protect};
 }

@@ -1,4 +1,5 @@
 import './display-preferences.js';
+import {offlineShopStore} from './shop-offline-store.js';
 import {clearPrivateCache} from './account-storage.js';
 const root=document.querySelector('#account-form'),params=new URLSearchParams(location.search);
 let mode=params.get('mode')||'login',busy=false;
@@ -8,7 +9,7 @@ const links='<div class="account-links"><a href="/auth.html">Sign in</a><a href=
 const email='<div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" maxlength="254" required></div>';
 const password=newPassword=>`<div class="field"><label for="password">${newPassword?'Create a password':'Password'}</label><input id="password" type="password" autocomplete="${newPassword?'new-password':'current-password'}" ${newPassword?'minlength="12"':''} maxlength="128" required>${newPassword?'<small>At least 12 characters.</small>':''}</div>`;
 async function request(action,data){const response=await fetch('/api/auth/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),cache:'no-store',signal:AbortSignal.timeout(25000)});const result=await response.json();if(!response.ok)throw Error(result.error||'Please try again.');return result;}
-function resetCache(){clearPrivateCache();sessionStorage.removeItem('cutsheet-account-identity-v1');localStorage.removeItem('cutsheet-active-account-v1');localStorage.setItem('cutsheet-cache-revision-v1',JSON.stringify({id:crypto.randomUUID(),auth:true,at:Date.now()}));}
+function resetCache(){void offlineShopStore.clear().catch(()=>{});clearPrivateCache();sessionStorage.removeItem('cutsheet-account-identity-v1');localStorage.removeItem('cutsheet-active-account-v1');localStorage.setItem('cutsheet-cache-revision-v1',JSON.stringify({id:crypto.randomUUID(),auth:true,at:Date.now()}));}
 function success(){resetCache();location.replace(next);}
 function render(){
  const title={login:'Welcome back',signup:'Create your account',recover:'Reset your password',reset:'Choose a new password'}[mode]||'Welcome back';

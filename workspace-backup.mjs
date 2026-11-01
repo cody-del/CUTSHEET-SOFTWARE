@@ -1,8 +1,8 @@
 import {createHash} from 'node:crypto';
 
 // Explicitly exclude device credentials, connection codes and login attempts.
-const keys=['schema','jobs','contacts','quotes','orders','drafts','draftImports','draftCounter','companyProfile','pricing','productPricing','salesCounters'];
-const maps=['jobs','contacts','quotes','orders','drafts','draftImports','companyProfile','pricing','productPricing','salesCounters'];
+const keys=['schema','jobs','contacts','quotes','orders','drafts','draftImports','draftCounter','companyProfile','pricing','productPricing','salesCounters','productionEvents'];
+const maps=['jobs','contacts','quotes','orders','drafts','draftImports','companyProfile','pricing','productPricing','salesCounters','productionEvents'];
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const checksum=data=>createHash('sha256').update(JSON.stringify(data)).digest('hex');
 export function createWorkspaceBackup(state,time=Date.now()){

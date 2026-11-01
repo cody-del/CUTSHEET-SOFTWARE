@@ -1,3 +1,4 @@
+import {validateProgressEvent,prepareProgressSync} from './shop-sync.mjs';
 import {waitingShopOrders,heldOrderSheet,productionName} from './order-manufacturing.mjs';
 import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
@@ -8,6 +9,7 @@ import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
 import {workerResponse} from './worker-view.mjs';
 import {revisionOperations,runRevision} from './job-revisions.mjs';
 
+const readOperations=new Set(['session','jobs','dashboard','job-get','company-get','workspace','workspace-backup','sales','sales-get','draft-get','job-revision-get','job-revision-preview']);
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
 const equal=(a,b)=>timingSafeEqual(Buffer.from(hash(a)),Buffer.from(hash(b)));
 const idPattern=/^[a-zA-Z0-9_-]{1,64}$/;
@@ -21,7 +23,7 @@ function plan(data){
   return {targetMinutes,due};
 }
 function stop(job,now){if(job.startedAt){job.elapsedMs+=Math.max(0,now-job.startedAt);job.startedAt=null;}}
-function audit(job,actor,message,now){job.activity.unshift({at:now,by:actor.name,message});job.activity=job.activity.slice(0,200);job.version++;job.updatedAt=now;}
+function audit(job,actor,message,now){job.activity.unshift({at:now,by:actor.name,message});job.activity=job.activity.slice(0,1000);job.version++;job.updatedAt=now;}
 function updateCompletion(job,time){
   for(const opening of job.openings)opening.productionCompletedAt=openingProduction(job,opening).key==='complete'?(opening.productionCompletedAt||time):null;
   job.productionCompletedAt=production(job).key==='complete'?(job.productionCompletedAt||time):null;
@@ -78,8 +80,17 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
     configured,
     async run(operation,data={},cookie={}) {
       if(!configured){if(operation==='session')return {configured:false,role:null,local,setupIssues};fail(503,'Shared shop storage is not connected yet.');}
+      let envelope=null;
+      if(operation==='sync'){try{envelope=validateProgressEvent(data,now());}catch(e){fail(e.status||400,e.message);}operation=envelope.action;data={...envelope.payload};}
       let worker=false;
       const response=await store.transaction(async state=>{
+        worker=actor(state,cookie)?.role==='shop';
+        let sync;
+        if(envelope){try{sync=prepareProgressSync(state,requireActor(state,cookie),envelope,now());}catch(e){fail(e.status||409,e.message);}
+          if(sync.duplicate)return {job:productionView(state,sync.job)};
+          data.version=sync.job.version;
+        }
+        const execute=async()=>{
         worker=actor(state,cookie)?.role==='shop';
         const time=now();
         // Prune expired connection codes and old rate-limit buckets.
@@ -108,10 +119,14 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(salesOperations.includes(operation)){const a=requireActor(state,cookie,true);return runSales(state,operation,data,time,release=>releaseJob(state,release,a,time),a.name);}
         if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
         const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
+        if(operation==='heartbeat'){
+          if(a.role==='shop'){const d=state.devices[hash(cookie.shop)];d.lastSeenAt=time;d.pendingUpdates=Math.max(0,Math.min(1000,Number(data.pendingUpdates)||0));}
+          return {ok:true,serverTime:time};
+        }
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]?.deletedAt).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
-              devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt})=>({id,name,createdAt}))}:{})};
+              devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt,lastSeenAt,pendingUpdates})=>({id,name,createdAt,lastSeenAt,pendingUpdates}))}:{})};
         }
         if(operation==='job-get'){
           const id=identifier(data.id);if(state.jobs[id]?.deletedAt||state.orders?.[id]?.deletedAt)fail(404,'This job was removed from Production.');if(state.jobs[id])return {job:productionView(state,state.jobs[id])};
@@ -187,17 +202,19 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           line.status=data.status;line.completed=completed;
           if(data.status==='partial'&&data.outOfMaterial){
             line.shortage={status:'open',note:text(data.note||'','material note',500,false),createdAt:time,updatedAt:time,by:a.name};
-            stop(job,time);
+            stop(job,envelope?Math.max(job.startedAt||0,Math.min(time,envelope.createdAt)):time);
           }else if(line.shortage&&data.status==='cut'){line.shortage.status='resolved';line.shortage.updatedAt=time;}
           job.completedAt=null;
-          if(progress(job).complete){stop(job,time);job.completedAt=time;}
+          if(progress(job).complete){stop(job,envelope?Math.max(job.startedAt||0,Math.min(time,envelope.createdAt)):time);job.completedAt=time;}
           updateCompletion(job,time);
           const opening=job.openings.find(o=>o.lines.includes(line));
           audit(job,a,`${opening.input.name} · ${line.name}${line.section?' · section '+line.section:''}: ${completed}/${line.quantity} cut${data.outOfMaterial?' · out of material (timer paused)':''}${progress(job).complete?' · '+production(job).label:''}`,time);
           return {job};
         }
         fail(404,'Unknown shop action.');
-      });
+        };
+        const result=await execute();sync?.commit();return result;
+      },{readOnly:!envelope&&readOperations.has(operation)});
       return worker?workerResponse(response):response;
     }
   };

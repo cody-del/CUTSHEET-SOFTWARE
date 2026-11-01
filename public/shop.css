@@ -93,3 +93,5 @@
 .shop-line.is-partial{background:#fffbeb;border-bottom-color:#e5cd85;box-shadow:inset 4px 0 #b87d10}
 .shop-line.is-partial .shop-status-buttons button[aria-pressed=true],.production-check.is-partial{background:#fff2c6;border-color:#d9b85c}
 .production-check.is-partial .production-check-actions [aria-pressed=true]{background:#65480d;color:#fff;border-color:#65480d}
+
+.shop-sync-time{font-size:.875rem;color:#656565;margin:0 0 18px}.shop-sync-warning{padding:16px 20px;margin:0 0 20px;background:#fff5ce;border:1px solid #dcc573;border-radius:6px}.shop-sync-warning p{margin:6px 0 12px}.shop-device small{display:block;color:#666;margin-top:5px}

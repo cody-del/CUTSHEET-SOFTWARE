@@ -36,17 +36,18 @@ export function accountStore(pool){
   async ownerActive(id){await init();const {rows}=await pool.query('SELECT user_id FROM cutsheet_private.accounts WHERE user_id=$1 AND disabled=false',[valid(id)]);return rows.length===1;},
   async rememberPair(code,ownerId){await init();await pool.query(`INSERT INTO cutsheet_private.pairings (code_hash,owner_id,expires_at) VALUES ($1,$2,now()+interval '10 minutes') ON CONFLICT (code_hash) DO UPDATE SET owner_id=excluded.owner_id,expires_at=excluded.expires_at`,[digest(code.replace(/[^a-zA-Z0-9]/g,'').toUpperCase()),valid(ownerId)]);},
   async pairingOwner(code){await init();const {rows}=await pool.query('SELECT owner_id FROM cutsheet_private.pairings WHERE code_hash=$1 AND expires_at>now()',[digest(String(code||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase())]);return rows[0]?.owner_id;},
-  workspace(ownerId){valid(ownerId);return {async transaction(fn){
+  async backupOwners(){await init();const {rows}=await pool.query('SELECT user_id FROM cutsheet_private.accounts WHERE disabled=false');return rows.map(r=>r.user_id);},
+  workspace(ownerId){valid(ownerId);return {async transaction(fn,{readOnly=false}={}){
    await init();const c=await pool.connect();try{
-    await c.query('BEGIN');
+    await c.query(readOnly?'BEGIN READ ONLY':'BEGIN');
     // The verified identity comes from Supabase Auth, never from a request field.
     await c.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:ownerId,role:'authenticated'})]);
     await c.query('SET LOCAL ROLE cutsheet_app');
-    await c.query('INSERT INTO cutsheet_private.workspaces (owner_id,data) VALUES ($1,$2) ON CONFLICT (owner_id) DO NOTHING',[ownerId,emptyWorkshop()]);
-    const {rows}=await c.query('SELECT data FROM cutsheet_private.workspaces WHERE owner_id=$1 FOR UPDATE',[ownerId]);
-    if(!rows.length)throw new Error('Workspace access denied.');
-    const state=rows[0].data,result=await fn(state);
-    await c.query('UPDATE cutsheet_private.workspaces SET data=$2,updated_at=now() WHERE owner_id=$1',[ownerId,state]);
+    if(!readOnly)await c.query('INSERT INTO cutsheet_private.workspaces (owner_id,data) VALUES ($1,$2) ON CONFLICT (owner_id) DO NOTHING',[ownerId,emptyWorkshop()]);
+    const {rows}=await c.query('SELECT data FROM cutsheet_private.workspaces WHERE owner_id=$1'+(readOnly?'':' FOR UPDATE'),[ownerId]);
+    if(!rows.length&&!readOnly)throw new Error('Workspace access denied.');
+    const state=rows[0]?.data||emptyWorkshop(),result=await fn(state);
+    if(!readOnly)await c.query('UPDATE cutsheet_private.workspaces SET data=$2,updated_at=now() WHERE owner_id=$1',[ownerId,state]);
     await c.query('COMMIT');return result;
    }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }};}

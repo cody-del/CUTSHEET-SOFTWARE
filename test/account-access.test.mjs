@@ -1,4 +1,6 @@
 import test from 'node:test';
+import {randomUUID} from 'node:crypto';
+import {progressTarget} from '../public/shop-progress.js';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
@@ -131,6 +133,12 @@ test('paired shop iPads stay within the account that issued their code and can b
  assert.equal((await f.run('publish',{job:{id:'worker-job',name:'Private Customer',number:'O-001',notes:'Pack separately',openings:[{...opening,customerEmail:'private@example.invalid',customerPhone:'555-0100',pricing:{unitPrice:1234}}]}})).status,200);
  assert.equal((await f.run('session',undefined,null,own)).value.ownerId,A);
  const list=await f.run('jobs',undefined,null,own);assert.equal(list.status,200);
+ const event={eventId:randomUUID(),action:'line',payload:{id:'worker-job',lineId:'opening-a-0',status:'cut'},base:progressTarget(list.value.jobs[0],'line',{lineId:'opening-a-0'}),revision:1,createdAt:Date.now()};
+ for(let retry=0;retry<2;retry++){const ack=await f.run('sync',event,null,own);assert.equal(ack.status,200);for(const value of ['Private Customer','private@example.invalid','unitPrice'])assert.ok(!JSON.stringify(ack.value).includes(value));}
+ assert.equal((await f.run('heartbeat',{pendingUpdates:2},null,own)).status,200);
+ const heartbeatBoard=await f.run('dashboard');assert.equal(heartbeatBoard.value.devices[0].pendingUpdates,2);assert.ok(heartbeatBoard.value.devices[0].lastSeenAt);
+ const forbidden=await f.api.protect(f.req('backup',undefined,null,own),()=>new Response('private backup'));assert.equal(forbidden.status,401);
+
  for(const privateValue of ['Private Customer','private@example.invalid','555-0100','unitPrice','a@example.invalid'])assert.ok(!JSON.stringify(list.value).includes(privateValue));
  for(const action of ['sales','workspace','company-get','dashboard','workspace-backup'])assert.equal((await f.run(action,undefined,null,own)).status,403);
  for(const [action,data]of [['sales-get',{kind:'order',id:'worker-job'}],['sales-document',{kind:'order',id:'worker-job'}],['order-pdf',{id:'worker-job'}],['pairing',{name:'Forbidden'}],['revoke',{deviceId:'Forbidden'}]])assert.equal((await f.run(action,data,null,own)).status,403);
@@ -150,4 +158,15 @@ test('password-recovery delivery failures never claim an email was sent',async t
  const f=await fixture(t,{recoveryError:{code:'email_address_not_authorized'}});
  const response=await f.auth.handle(new Request('https://example.test/api/auth/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'a@example.invalid'})}));
  assert.equal(response.status,503);assert.match((await response.json()).error,/email is unavailable/);
+});
+
+test('read-only snapshots preserve database timestamps and do not create workspaces',async t=>{
+ const f=await fixture(t);await f.enroll(A);await f.enroll(B);
+ await f.store.workspace(A).transaction(s=>{s.contacts={one:contact};});
+ const before=(await f.db.query('SELECT updated_at FROM cutsheet_private.workspaces WHERE owner_id=$1',[A])).rows[0].updated_at;
+ assert.equal((await f.store.workspace(A).transaction(s=>s.contacts.one,{readOnly:true})).phone,contact.phone);
+ await f.store.workspace(B).transaction(s=>s,{readOnly:true});
+ const rows=(await f.db.query('SELECT owner_id,updated_at FROM cutsheet_private.workspaces')).rows;
+ assert.equal(rows.length,1);assert.equal(+new Date(rows[0].updated_at),+new Date(before));
+ const response=await f.api.protect(f.req('backup'),(_request,identity)=>new Response(identity.ownerId));assert.equal(await response.text(),A);
 });

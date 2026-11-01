@@ -231,3 +231,34 @@ New openings start with blank width and height and Shutter size remains the defa
 Home provides three starting points: Create Quote, Create Cut Sheet, and Find my job, followed by recent work. New customers entered during quote creation go straight to the quote editor. Standalone jobs receive unique CS numbers automatically. Browser import/export tools live in Settings. Production defaults to a searchable job list at tablet widths, with stage filters and an optional desktop board. Job labels include the customer, and unstarted timers explicitly say Time not tracked.
 
 Confirmed frame mappings: Modern Standard uses Standard cutting rules; Modern Z and Elegance use Z rules. Each keeps its own appearance and printed name. Designer uses its separate workbook profile. Older preview-only records resolve these confirmed aliases when calculated or saved; released production copies change only through the owner's reviewed revision flow. Regression tests compare both standard and T-post outputs and verify PDF generation.
+
+
+## Shared saving, shop offline work, and backups
+
+Owner edits (contacts, quotes, orders, pricing, company details and cut-sheet configuration) save to the authenticated Supabase company workspace. They require an internet connection. The browser read cache speeds navigation but is not the database. Explicit record versions reject overwrites from stale owner tabs. Read-only polling no longer locks or rewrites the workspace row.
+
+Production refreshes every five seconds while the screen is active; other owner pages refresh every thirty seconds when no form is being edited. Device last-connection times appear under Settings → Shop devices. Material shortages are visible on the owner's Production dashboard after the iPad's updates reach the server. There are no SMS or email alerts.
+
+### Shop iPad: temporary loss of internet
+
+1. Open `/shop.html` while connected and wait for **Saved to workshop · offline copies ready**. Pair the iPad once using the owner's Settings → Shop devices code.
+2. Published cut sheets remain available for up to **12 hours after the last successful connection**. Workers can update cut quantities, material requests and finishing checks. Only the restricted worker view is stored in IndexedDB; customer details and prices are excluded by the server. The service worker caches static shop assets only, never API responses or owner pages.
+3. **Saved on this iPad · waiting to sync** means the owner has not received those updates yet. Keep this browser's data; do not clear Safari storage or use private browsing. Clearing browser data loses unsynced work. Safari may also evict storage under device pressure.
+4. Reconnect and keep the shop page open. Pending updates retry automatically. Every event has a persistent ID, target baseline and manufacturing revision; retries apply once. Different lines can merge. Conflicting edits or revised/deleted cut sheets require review and are kept in the queue, with a download option, instead of silently overwriting current work.
+5. Timers and PDF generation require a connection. Owner quoting, payments, settings and measurement changes are online-only. iPad background syncing while the browser is closed is not promised. When access expires, reconnect before continuing.
+
+Disconnecting an iPad blocks server access immediately; an offline device can retain its already downloaded worker view until the 12-hour lease expires. Failed/revoked authentication clears its worker cache. Pending shop events are retained for up to seven days for replay; older events require owner review. Losing a device should prompt revocation in Settings.
+
+### Automatic company backups
+
+The Netlify scheduled function `company-backup` runs hourly at minute 17 UTC on the published production deployment. It reads each active owner's workspace under that owner's database RLS identity, writes to the private site-wide `cutsheet-private-company-backups` Blobs store, and downloads/verifies the checksum before reporting success. Netlify supplies encryption in transit and at rest. No separate application encryption key is used. Each owner can only list/download their own backup prefix; shop devices and anonymous visitors are denied.
+
+Retention: every hourly copy for 48 hours, then the latest copy per UTC day for 30 days. Failed verification does not prune copies or replace the previous success timestamp. Settings shows backup status/history and supports downloads. Home shows an attention notice if no verified copy exists within two hours or the latest attempt failed. A failure before owner enumeration may appear as stale status rather than a per-owner error; inspect Netlify function logs. Status alerts require the owner to open the app; they are not external monitoring.
+
+Backups contain business records, company settings, product pricing, cut-sheet inputs/results and production progress/event receipts. Passwords, Auth users, device credentials, connection codes, secrets and application source files are excluded. Catalogs/calculation code remain versioned in GitHub. This is a business-workspace backup, not a full PostgreSQL/Storage/Auth dump or point-in-time recovery service. Unsynced iPad work cannot be in a server backup yet.
+
+### Recovery procedure
+
+Download a verified backup in Settings and keep it private. Do not overwrite the live workspace. Provision an empty authorized workspace with the schema/code matching the app, recreate the owner's verified Auth account and required server secrets, then run `node scripts/restore-workspace.mjs /absolute/path/backup.json owner@example.com` against the recovery database. The command validates the checksum and destination, defaults to a dry run, and refuses to overwrite business records. Only after review use the same command with `--apply`. Re-pair shop iPads after recovery. Test a restore to an isolated database periodically and after substantial schema changes. Business backup downloads contain customer information and must not be committed to Git.
+
+Before the first shop rollout, verify Safari on the actual iPad: online load → airplane mode → mark a test partial cut/check → close/reopen → reconnect → confirm the owner sees exactly one update. Desktop simulated-outage testing is included, but does not replace this device check.

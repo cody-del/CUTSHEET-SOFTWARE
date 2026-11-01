@@ -1,3 +1,4 @@
+import {showBackupStatus,showBackupAlert} from './backup-status.js';
 import {accountStorage,accountFetch} from './account-storage.js';
 import './auth-guard.js';
 import {financialMetrics} from './order-ui.js';
@@ -31,7 +32,7 @@ function home(){
   ...sales.orders.filter(o=>!o.financials?.confirmed||!o.manufacturingOpeningCount).map(o=>({id:o.id,at:o.updatedAt,url:'/contacts.html#order/'+o.id,name:label(sales.contacts.find(c=>c.id===o.contactId))||o.name,sub:o.number+' · '+o.name,next:o.financials?.confirmed?'View order':'Confirm sale & payment'}))];
  const unique=[...new Map(recent.map(x=>[x.id,x])).values()].sort((a,b)=>b.at-a.at).slice(0,8);
  const attention=board.jobs.filter(j=>schedule(j,Date.now()).tone==='attention').length+(board.pendingOrders||[]).filter(o=>o.readiness?.status==='blocked').length;
- return heading()+`<section class="workflow-starts" aria-label="Start or continue work">
+ return heading()+`<div data-backup-alert hidden role="status"></div><section class="workflow-starts" aria-label="Start or continue work">
  <article><h2>New quote</h2><p>Choose a customer, add openings, and price the job.</p><a class="btn primary" href="/contacts.html#quotes?new=1">Create Quote</a></article>
  <article><h2>Make a cut sheet</h2><p>Enter ShutterSmart measurements for a job you already have.</p><button class="btn primary" id="new-draft">Create Cut Sheet</button></article>
  <article><h2>Continue a job</h2><p>Pick up a quote, cut sheet, or shop job where you left off.</p><a class="btn" href="#recent-work">Find my job</a></article></section>
@@ -87,7 +88,7 @@ function settings(){
   </section>
  </div>
  <section class="settings-section">
-  <h2>Company backup</h2><p>Download customers, quotes, orders, cut sheets, production progress, saved pricing and company settings. Keep this file in a private, backed-up folder.</p>
+  <h2>Company backup</h2><div data-backup-status role="status">Checking automatic backups…</div><p>Download customers, quotes, orders, cut sheets, production progress, saved pricing and company settings. Keep this file in a private, backed-up folder.</p>
   <div class="settings-actions"><button class="btn" id="company-backup">Download company backup</button></div>
   <p class="field-help">Passwords and shop-device connections are not included. This is a manual backup.</p>
  </section>
@@ -114,6 +115,7 @@ async function load({quiet=false,force=false}={}){
   session=nextSession;data=next;error='';
   if(page==='settings'){if(!quiet&&!legacy.length)legacy=browserData().jobs;if(legacy.length){data.workspace=await shopRequest('workspace',undefined,{force});await restoreImports();}}
   if(!quiet||changed)render();
+  if(!session.local){if(page==='settings')void showBackupStatus();if(page==='home')void showBackupAlert();}else if(page==='settings')document.querySelector('[data-backup-status]').textContent='Automatic backups run on the live company account.';
   if(!quiet){restoreScroll(page);void warmWorkspace();}
  }catch(e){if(quiet)throw e;error=e.message;render();}
 }

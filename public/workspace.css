@@ -203,3 +203,5 @@
 #recent-work{scroll-margin-top:20px}.workspace-row>div{min-width:0}.workspace-row strong,.workspace-row small{overflow-wrap:anywhere}
 @media(max-width:1000px){.workflow-starts{grid-template-columns:1fr}.workflow-starts article{padding:20px}.workflow-starts article p{margin-bottom:0}}
 @media(max-width:600px){.workspace-row{align-items:flex-start;flex-direction:column;gap:10px}.workspace-row>span{text-align:left}}
+
+.backup-status{padding:16px;margin:16px 0;background:#f3f5f3;border-radius:6px}.backup-status.needs-attention{background:#fff5ce}.backup-status p{margin:0 0 8px}.backup-status small{display:block}.backup-status label{display:block;max-width:360px;margin:16px 0 12px}.backup-status select{display:block;width:100%;margin-top:6px}
