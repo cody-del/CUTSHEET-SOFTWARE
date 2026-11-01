@@ -17,7 +17,7 @@ function pageTextRuns(pdf,page){
   });
 }
 
-test('a two-section T-post prints in the standard full-width reading order, with every cut beside its quantity',async()=>{
+test('a two-section T-post groups like parts in a full-width table, with every cut beside its quantity',async()=>{
   const opening={...printedReferences[2].opening,name:'T-post opening',width:72.5,height:59.125,sides:'4S',divider:0,
     notes:'Width kept exact. Height reduced to meet the light-gap requirement. Post centerline measured from the left. Trim on top and sides, Standard bottom. Keep these panels together for installation and check the room label before assembly.',
     tposts:{construction:'two-piece',positions:[36.5],sections:[{left:1,right:0},{left:0,right:1}]}};
@@ -28,18 +28,24 @@ test('a two-section T-post prints in the standard full-width reading order, with
     const runs=pageTextRuns(pdf,pdf.getPage(0));
     assert.equal(runs.filter(r=>r.text==='PART / PROFILE').length,1,'one full-width parts table');
     const qty=runs.find(r=>r.text==='QTY'),cut=runs.find(r=>r.text===`SIZE (${units})`),end=runs.find(r=>r.text===`MACHINING (${units})`);
-    const names=result.parts.map(p=>runs.find(r=>r.text===p.name.replace(' · ',' ')+(p.section?` - Section ${p.section}`:'')));
+    const expectedOrder=['Louvers - Section 1','Louvers - Section 2','Stile flat','Top rail - Section 1','Top rail - Section 2','Bottom rail - Section 1','Bottom rail - Section 2','Top frame','Bottom frame','Left frame','Right frame','T-post assembly','Tiltrod'];
+    const names=expectedOrder.map(label=>runs.find(r=>r.text===label));
     assert.ok(names.every(Boolean),'every part is printed with an explicit section where needed');
-    result.parts.forEach((p,i)=>{
-      const name=names[i],bottom=names[i+1]?.y??end.y;
+    assert.equal(names.length,result.parts.length,'no cuts are merged or dropped');
+    names.forEach((name,i)=>{
+      const p=result.parts.find(p=>p.name.replace(' · ',' ')+(p.section?` - Section ${p.section}`:'')===name.text);
+      const bottom=names[i+1]?.y??end.y;
       assert.equal(name.x,names[0].x,'all rows read down the same column');
-      assert.ok(name.y>bottom,'part order stays unchanged');
+      assert.ok(name.y>bottom,'louvers, stiles and each rail type stay grouped');
       for(const [header,value]of [[qty,String(p.quantity)],[cut,formatPrintLength(p.length,units)]]){
         assert.ok(runs.some(r=>r.x===header.x&&r.y<=name.y+1&&r.y>bottom&&r.text===value),`${name.text}: ${header.text} ${value}`);
       }
       assert.ok(runs.some(r=>r.text===p.profile&&r.y<=name.y+1&&r.y>bottom),`${name.text}: profile retained`);
     });
     assert.equal(runs.filter(r=>r.text==='WHOLE DISTANCE').length,result.parts.filter(p=>p.name.startsWith('Stile')).length);
+    const holeLabel=runs.find(r=>r.text==='WHOLE DISTANCE'),holeValue=runs.find(r=>r.x===holeLabel.x&&r.y<holeLabel.y&&r.text.endsWith(` ${units}`));
+    assert.ok(holeValue&&holeLabel.y-holeValue.y===12,'whole distance uses a compact two-line label');
+    assert.ok(runs.some(r=>r.y===holeValue.y&&r.text==='from top'),'drilling reference stays with its value');
     assert.ok(runs.some(r=>r.text==='Hinged / complete'));
   }
 });
@@ -95,5 +101,14 @@ test('expanded parts lists leave room for notes and the checklist with one throu
   for(const units of ['mm','in']){
     const pdf=await PDFDocument.load(await createPDF({number:'LAYOUT-NOTES',customer:'Example customer and installation address with enough detail to wrap onto a second header line for this layout check',openings},{units}));
     assert.equal(pdf.getPageCount(),openings.length);
+    pdf.getPages().forEach((page,i)=>{
+      const runs=pageTextRuns(pdf,page),louvers=runs.filter(r=>/^Louvers - Section /.test(r.text)),stiles=runs.filter(r=>/^Stile (regular|flat)$/.test(r.text));
+      assert.equal(louvers.length,i+2);
+      assert.equal(new Set(louvers.map(r=>r.x)).size,1,'all louvers stay in the same column');
+      assert.equal(stiles.length,2);
+      assert.equal(new Set(stiles.map(r=>r.x)).size,1,'flat and regular stiles stay together');
+      const labels=runs.filter(r=>r.text==='WHOLE DISTANCE');
+      assert.equal(labels.length,stiles.length,'both stile profiles retain their drilling box');
+    });
   }
 });

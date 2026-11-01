@@ -4,6 +4,9 @@ import {cutSheetFacts,cutSheetNotes,louverSummary,machiningLabel,firstLouverHole
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {calculate,combinedParts,ValidationError,configuration} from './calculations.mjs';
 const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
+const PRINT_PART_GROUPS=['Louvers','Aluminum insert','Stiles','Top rail','Bottom rail','Divider rail','Top frame','Bottom frame','Left frame','Right frame','T-post assembly','Tiltrods'];
+const partGroup=p=>p.name.startsWith('Stile')?'Stiles':p.name.startsWith('Tiltrod')?'Tiltrods':p.name;
+const partRank=p=>{const rank=PRINT_PART_GROUPS.indexOf(partGroup(p));return rank<0?PRINT_PART_GROUPS.length:rank;};
 const ascii=s=>String(s??'').normalize('NFKD').replace(/×/g,'x').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/·/g,'  ').replace(/[–—]/g,'-').replace(/[^\x20-\x7e\n]/g,'');
 export function formatPrintLength(mm,units='mm',{hinge=false}={}){
   if(units==='in')return (mm/25.4).toFixed(4);
@@ -32,9 +35,10 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const heading=wrap(sheetTitle,440,13,bold);heading.forEach((l,i)=>text(l,margin,759-i*16,13,bold));
     const jobLines=wrap(job.number?(/^(?:O-)?\d+$/.test(job.number)?'Order ':'Job ')+job.number:'Unnumbered job',96,8);
     jobLines.forEach((l,i)=>text(l,580-regular.widthOfTextAtSize(l,8),744-i*10,8,regular,muted));
-    y=Math.min(724,740-(heading.length-1)*16,725-(jobLines.length-1)*10);
+    y=737-(heading.length-1)*16;
     if(job.revision>1){text('Revision '+job.revision+' · Replaces earlier copies',margin,y,9,regular,muted);y-=18;}
-    if(title){for(const l of wrap(title,width,16,bold)){text(l,margin,y,16,bold);y-=20;}}
+    if(title){for(const l of wrap(title,440,13,bold)){text(l,margin,y,13,bold);y-=18;}}
+    y=Math.min(y,730-(jobLines.length-1)*10);
   }
   function ensure(height,title='continued'){if(y-height<floor)newPage(`${openingLabel?openingLabel+'  ':''}${title}`);}
   function paragraph(value,{size=8.5,boldText=false}={}){
@@ -81,14 +85,14 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   }
   function rowData(p,w,small,isCombined=false,scale=1,compact=false){
     const c=tableColumns(w,small,isCombined),title=p.name.replace(' · ',' ')+(p.section?` - Section ${p.section}`:''),nameSize=(small?8:9)*scale,profileSize=7*scale,valueSize=(small?9:10)*scale;
-    const holeBox=p.name.startsWith('Stile')?{width:small?w-14:Math.min(c.name,106),height:small?22:36,horizontal:small,stacked:small||isCombined,value:Number.isFinite(p.wholeDistance)?length(p.wholeDistance)+' '+units:'Not available'}:null;
+    const holeBox=p.name.startsWith('Stile')?{width:Math.min(c.name,106),height:26,stacked:small||isCombined,value:Number.isFinite(p.wholeDistance)?length(p.wholeDistance)+' '+units:'Not available'}:null;
     const nameWidth=holeBox&&!holeBox.stacked?c.name-holeBox.width-10:c.name;
     const inlineProfile=(small||compact)&&!holeBox&&bold.widthOfTextAtSize(ascii(title),nameSize)+8+regular.widthOfTextAtSize(ascii(p.profile),profileSize)<=nameWidth;
     const name=wrap(title,nameWidth,nameSize,bold),profile=inlineProfile?[]:wrap(p.profile,nameWidth,profileSize);
     const refs=isCombined?wrap(p.openings.map(o=>`${o.name} (${o.quantity})`).join(', '),c.refsWidth,7):[];
     const labelHeight=(small&&compact?2:small||compact?3:5)+name.length*(nameSize+1)+profile.length*(profileSize+1);
     const minimumHeight=small&&compact?(inlineProfile?16:19):small||compact?(inlineProfile?18:20):22;
-    const contentHeight=Math.max(minimumHeight,holeBox?.stacked?labelHeight+holeBox.height+7:Math.max(labelHeight,(holeBox?.height||0)+6));
+    const contentHeight=Math.max(minimumHeight,holeBox?.stacked?labelHeight+holeBox.height+4:Math.max(labelHeight,(holeBox?.height||0)+6));
     const baseHeight=Math.max(contentHeight,refs.length*9+7);
     return {p,name,profile,refs,nameSize,profileSize,valueSize,inlineProfile,holeBox,contentHeight,baseHeight,height:baseHeight};
   }
@@ -98,12 +102,13 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     if(inlineProfile)text(p.profile,x+7+bold.widthOfTextAtSize(ascii(name[0]),nameSize)+8,yy,profileSize,regular,muted);
     name.forEach(l=>{text(l,x+7,yy,nameSize,bold);yy-=nameSize+1;});profile.forEach(l=>{text(l,x+7,yy,profileSize,regular,muted);yy-=profileSize+1;});
     if(holeBox){
-      const xx=holeBox.stacked?x+7:x+7+c.name-holeBox.width,boxTop=holeBox.stacked?yy+profileSize-5:top-(height-holeBox.height)/2;
+      const xx=holeBox.stacked?x+7:x+7+c.name-holeBox.width,boxTop=holeBox.stacked?yy+profileSize-2:top-(height-holeBox.height)/2;
       page.drawRectangle({x:xx,y:boxTop-holeBox.height,width:holeBox.width,height:holeBox.height,color:white,borderColor:ink,borderWidth:1});
-      if(holeBox.horizontal){text('WHOLE DISTANCE',xx+6,boxTop-14,7.5,bold);text(holeBox.value,xx+94,boxTop-14,10,bold);text('From stile top',xx+holeBox.width-48,boxTop-14,6.5);}
-      else{text('WHOLE DISTANCE',xx+6,boxTop-10,7.5,bold);text(holeBox.value,xx+6,boxTop-22,10,bold);text('From stile top',xx+6,boxTop-31,6.5);}
+      text('WHOLE DISTANCE',xx+6,boxTop-9,7.5,bold);
+      text(holeBox.value,xx+6,boxTop-21,10,bold);
+      text('from top',xx+holeBox.width-32,boxTop-21,6.5);
     }
-    const center=top-height/2,topAligned=isCombined||holeBox?.horizontal,numberY=topAligned?top-14:center-valueSize*.3;
+    const center=top-height/2,topAligned=isCombined||holeBox?.stacked,numberY=topAligned?top-14:center-valueSize*.3;
     text(p.quantity,x+c.qty,numberY,valueSize,bold);text(length(p.length),x+c.cut,numberY,valueSize,bold);
     // Printed status is intentionally blank; paper marks are independent of digital progress.
     // A continued combined row keeps just one pair of checkboxes with its quantity.
@@ -114,27 +119,35 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     // Prefer the standard full-width reading order. Put profiles beside names
     // before resorting to two columns for unusually long section lists.
     const gap=12;
-    function layout(columns,scale=1,compact=false){
+    function layout(columns,scale=1,compact=false,keepPartGroups=true){
       const w=(width-gap*(columns-1))/columns,small=columns===2,rows=parts.map(p=>rowData(p,w,small,isCombined,scale,compact));
       let groups=[rows];
       if(columns===2){
         const total=rows.reduce((sum,row)=>sum+row.height,0);let before=0,best=Infinity,split=1;
         for(let i=1;i<rows.length;i++){
           before+=rows[i-1].height;
-          // Keep a section's louvers and rails together when two columns are needed.
-          if(rows[i-1].p.section&&rows[i-1].p.section===rows[i].p.section)continue;
+          // Prefer whole groups in each column. On the longest sheets, allow
+          // rails to continue in the next column, but keep louvers and stiles together.
+          const group=partGroup(rows[i-1].p);
+          if(group===partGroup(rows[i].p)&&(keepPartGroups||group==='Louvers'||group==='Stiles'))continue;
           const tallest=Math.max(before,total-before);if(tallest<best){best=tallest;split=i;}
         }
         groups=[rows.slice(0,split),rows.slice(split)];
       }
-      return {columns,w,small,compact,groups,height:19+Math.max(...groups.map(group=>group.reduce((sum,row)=>sum+row.height,0)))+12};
+      return {columns,w,small,compact,keepPartGroups,groups,height:19+Math.max(...groups.map(group=>group.reduce((sum,row)=>sum+row.height,0)))+12};
     }
     let plan=layout(1);
     if(!isCombined&&maxHeight>0){
       if(plan.height>maxHeight){const compact=layout(1,1,true);if(compact.height<=maxHeight)plan=compact;else if(parts.length>10)plan=layout(2);}
       if(plan.columns===2&&plan.height>maxHeight)plan=layout(2,1,true);
+      if(plan.columns===2&&plan.height>maxHeight)plan=layout(2,1,true,false);
       // Enlarge only after reserving the actual machining, notes and bottom checklist.
-      for(const scale of [1.2,1.1]){const larger=layout(plan.columns,scale,plan.compact);if(larger.height<=maxHeight){plan=larger;break;}}
+      for(const scale of [1.2,1.1]){
+        const candidates=[layout(plan.columns,scale,plan.compact,plan.keepPartGroups)];
+        if(plan.columns===1&&!plan.compact)candidates.push(layout(1,scale,true));
+        const larger=candidates.find(candidate=>candidate.height<=maxHeight);
+        if(larger){plan=larger;break;}
+      }
       const extra=Math.max(0,maxHeight-plan.height),count=Math.max(...plan.groups.map(group=>group.length));
       for(const group of plan.groups)for(const data of group)data.height+=extra/count;
     }
@@ -213,7 +226,10 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12},notes=cutSheetNotes(result);
     const paragraphHeight=(value,size=8.5)=>wrap(value,width,size).length*(size+4)+3;
     const remaining=16+factsLayout(machining,machiningOptions).height+3+notes.reduce((sum,note)=>sum+paragraphHeight(note,8),0)+(o.notes?paragraphHeight(`Shop notes: ${o.notes}`):0)+completionLayout([o]).height+12;
-    partTables(result.parts.map(p=>({...p,wholeDistance:firstHole})),false,y-floor-remaining);
+    // Reorder the printed T-post list only; retain every section's own size and quantity.
+    const printedParts=result.parts.map(p=>({...p,wholeDistance:firstHole}));
+    if(o.tposts)printedParts.sort((a,b)=>partRank(a)-partRank(b)||(a.section||0)-(b.section||0));
+    partTables(printedParts,false,y-floor-remaining);
     ensure(48,'Machining continued');text(`MACHINING (${units})`,margin,y-8,8,bold);y-=16;
     facts(machining,machiningOptions);
     y-=3;for(const note of notes)paragraph(note,{size:8});
