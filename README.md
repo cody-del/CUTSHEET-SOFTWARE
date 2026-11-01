@@ -182,7 +182,7 @@ The separate **Older browser drafts** export covers only drafts saved in that br
 
 ## Order payments and shop handoff
 
-New client order numbers start at **5000** and increase by one. Allocation checks the saved counter and all existing orders, including deleted and legacy `O-` numbers, within the workspace transaction. Retrying a conversion returns the same order. Quote (`Q-`) and standalone cut-sheet (`CS-`) numbering are unchanged. Owner cut-sheet PDFs use the customer's full name; employee copies retain the anonymous job label.
+New client order numbers start at **O-5000** and increase by one. Allocation checks the saved counter and all existing orders, including deleted, prefixed and unprefixed numbers, within the workspace transaction. Retrying a conversion returns the same order. Quote (`Q-`) and standalone cut-sheet (`CS-`) numbering are unchanged. Owner cut-sheet PDFs use the customer's full name; employee copies retain the anonymous job label.
 
 Converting a quote opens **Pricing & payment**. The owner confirms the final sale total (including tax) and records any amount already received, including zero. Home and Orders show confirmed sales, received payments, and outstanding balances. Legacy orders remain marked **Needs pricing** until confirmed; no payment history is inferred. Additional receipts use integer cents, optimistic versions, and retry-safe IDs. Voiding an incorrect entry retains its reason and timestamp; the app does not process charges or refunds.
 

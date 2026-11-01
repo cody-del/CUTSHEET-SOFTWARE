@@ -23,7 +23,7 @@ function nextOrderNumber(state){
   const issued=Object.values(state.orders).map(o=>/^(?:O-)?(\d+)$/.exec(o.number||'')?.[1]).map(Number).filter(Number.isSafeInteger);
   const last=Math.max(4999,Number.isSafeInteger(state.salesCounters.order)?state.salesCounters.order:0,...issued);
   if(!Number.isSafeInteger(last+1))fail(400,'Order number capacity reached.');
-  state.salesCounters.order=last+1;return String(last+1);
+  state.salesCounters.order=last+1;return 'O-'+String(last+1);
 }
 function contactAddress(fields,previous){
   if(['streetAddress','city','zipCode'].some(key=>key in fields)){

@@ -34,16 +34,16 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
   page=doc.addPage([612,792]);pages.push(page);
   if(first){
    const logoScale=logo?Math.min(86/logo.width,72/logo.height):0,logoWidth=logo?logo.width*logoScale:0,logoHeight=logo?logo.height*logoScale:0;
-   const companyX=logo?36+logoWidth+18:36,companyWidth=576-companyX;let top=745;
+   const companyX=logo?36+logoWidth+18:36,companyWidth=450-companyX;let top=745;
    if(logo)page.drawImage(logo,{x:36,y:758-logoHeight,width:logoWidth,height:logoHeight});
    for(const s of wrap(company.name,companyWidth,15,bold).filter(Boolean)){text(s,companyX,top,15,bold);top-=20;}
    if(company.name)top-=2;
    const contactLine=[phone(company.phone),company.email].filter(Boolean).join('   |   ');
    for(const value of [company.address,contactLine,company.website].filter(Boolean))for(const s of wrap(value,companyWidth,9)){text(s,companyX,top,9,font,gray);top-=13;}
-   y=Math.min(top-12,758-logoHeight-16);line(y);y-=29;
-   text((isOrder?'Order ':'Proposal ')+q.number,36,y,14,bold);
-   right(new Date(q.createdAt).toLocaleDateString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',year:'numeric'}),576,y+1,9,font,gray);
-   y-=31;
+   right(q.number,576,745,14,bold);
+   right(new Date(q.createdAt).toLocaleDateString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',year:'numeric'}),576,726,9,font,gray);
+   if(!isOrder&&q.validUntil)right('Valid through '+q.validUntil,576,711,8,font,gray);
+   y=Math.min(top-12,758-logoHeight-16,689);line(y);y-=23;
   }else{
    text(label+'  '+q.number,36,751,11,bold);
    right(wrap(company.name||'',300,9)[0],576,751,9,font,gray);line(735);y=712;
@@ -64,16 +64,28 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
  }
  newPage(true);
  const customerName=[c.firstName,c.lastName].filter(Boolean).join(' ');
- const customer=[...wrap(customerName,260,11,bold).map(s=>[s,11,bold]),...[c.address,phone(c.phone),c.email].filter(Boolean).flatMap(s=>wrap(s,260,9).map(r=>[r,9,font]))];
+ const address=String(c.address||'').trim().split(/\s*\n\s*/).filter(Boolean).join(', ');
+ const customer=[[customerName,10,bold],[address,9,font],[phone(c.phone),9,font],[c.email,9,font]].filter(([value])=>value);
  const normalized=value=>clean(value).trim().replace(/\s+/g,' ').toLowerCase();
- const jobName=normalized(q.name)&&normalized(q.name)!==normalized(customerName)?wrap(q.name,235,11,bold):[];
- const validUntil=!isOrder&&q.validUntil?'Valid through '+q.validUntil:'';
- const blockHeight=Math.max(customer.length*15,jobName.length*15+(validUntil?20:0))+40;ensure(blockHeight);
- text('PREPARED FOR',36,y,8,bold,gray);if(jobName.length)text('PROJECT',330,y,8,bold,gray);y-=19;
- let cy=y;for(const [s,size,f]of customer){text(s,36,cy,size,f);cy-=15;}
- let jy=y;for(const s of jobName){text(s,330,jy,11,bold);jy-=15;}
- if(validUntil){text(validUntil,330,jy,9,font,gray);jy-=20;}
- y=Math.min(cy,jy)-16;tableHeader();
+ // Customer details flow across the page; long fields wrap without losing content.
+ let cx=36;
+ for(const [value,size,f]of customer){
+  const words=clean(value).trim().split(/\s+/),fieldWidth=f.widthOfTextAtSize(words.join(' '),size);
+  if(cx>36){
+   if(cx+18+fieldWidth>576&&fieldWidth<=540){y-=14;cx=36;}
+   else{text('|',cx+7,y,9,font,gray);cx+=18;}
+  }
+  for(const word of words)for(const piece of wrap(word,540,size,f)){
+   const tokenWidth=f.widthOfTextAtSize(piece,size);
+   if(cx+tokenWidth>576){y-=14;cx=36;}
+   ensure(14);text(piece,cx,y,size,f,f===bold?ink:gray);cx+=tokenWidth+f.widthOfTextAtSize(' ',size);
+  }
+ }
+ y-=18;
+ if(normalized(q.name)&&normalized(q.name)!==normalized(customerName)){
+  for(const s of wrap('Project: '+q.name,540,9)){ensure(14);text(s,36,y,9,font,gray);y-=14;}
+ }
+ y-=11;tableHeader();
  for(const [i,o]of q.openings.entries()){
   const priced=t.lines.find(l=>l.openingId===o.id),details=[];
   details.push(productName(lineProduct(o,q)),`${o.width}" W x ${o.height}" H`);

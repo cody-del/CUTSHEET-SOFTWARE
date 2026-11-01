@@ -29,17 +29,17 @@ test('square-foot pricing rounds each unit once, respects minimums, and snapshot
 
 test('conversion is idempotent and freezes contact, openings and prices',async t=>{const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});assert.equal((await f.run('quote-convert',{id:q.id,version:q.version})).order.id,order.id);await f.run('contact-save',{id:'contact-1',version:1,fields:{...contact,address:'Changed address'}});await f.run('pricing-save',{version:1,rateCents:9999,minimumAreaHundredths:0});const frozen=await f.run('sales-get',{kind:'order',id:order.id});assert.equal(frozen.contact.address,contact.address);assert.deepEqual(frozen.record.openings,[opening]);assert.equal(frozen.totals.total,74376);const current=await f.run('sales-get',{kind:'quote',id:q.id});await assert.rejects(f.run('quote-save',{id:q.id,version:current.record.version,fields:{name:'Changed'}}),/cannot be changed/);assert.equal((await f.run('sales')).orders.length,1);});
 
-test('client order numbers start at 5000 and concurrent conversions issue each number once',async t=>{
+test('client order numbers start at O-5000 and concurrent conversions issue each number once',async t=>{
  const f=await fixture(t),q=await quote(f),{order}=await f.run('quote-convert',{id:q.id,version:q.version});
- assert.equal(order.number,'5000');assert.equal(order.quoteNumber,'Q-0001');
- assert.equal((await f.run('quote-convert',{id:q.id,version:q.version})).order.number,'5000');
+ assert.equal(order.number,'O-5000');assert.equal(order.quoteNumber,'Q-0001');
+ assert.equal((await f.run('quote-convert',{id:q.id,version:q.version})).order.number,'O-5000');
  const quotes=[];
  for(const id of ['next-a','next-b']){
   const {quote:created}=await f.run('quote-create',{id,contactId:'contact-1'});
   quotes.push((await f.run('quote-save',{id,version:created.version,fields:{openings:[opening]}})).quote);
  }
  const orders=await Promise.all(quotes.map(q=>f.run('quote-convert',{id:q.id,version:q.version})));
- assert.deepEqual(orders.map(r=>r.order.number).sort(),['5001','5002']);
+ assert.deepEqual(orders.map(r=>r.order.number).sort(),['O-5001','O-5002']);
  assert.equal(JSON.parse(await readFile(f.path)).salesCounters.order,5002);
 });
 
@@ -51,7 +51,7 @@ test('deleted and legacy order numbers remain reserved even when the counter is 
   state.salesCounters.order=2;
  });
  const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
- assert.equal(order.number,'5010');
+ assert.equal(order.number,'O-5010');
  const state=JSON.parse(await readFile(f.path));
  assert.equal(state.orders.previous.number,'O-5008');assert.equal(state.orders.numeric.number,'5009');
 });
