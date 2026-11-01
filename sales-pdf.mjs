@@ -4,6 +4,7 @@ import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {frameDescription,frameSetupLabel} from './public/frames.js';
 const clean=value=>String(value??'').normalize('NFKD').replace(/[–—]/g,'-').replace(/×/g,'x').replace(/·/g,' / ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x20-\x7e\n]/g,'');
 const money=cents=>cents==null?'Not priced':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
+const phone=value=>{const digits=String(value||'').replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'');return digits.length===10?`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`:value;};
 
 export async function createSalesPDF({record:q,contact:c,totals:t,company={}},kind){
  const doc=await PDFDocument.create(),font=await doc.embedFont(StandardFonts.Helvetica),bold=await doc.embedFont(StandardFonts.HelveticaBold);
@@ -32,15 +33,17 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
  function newPage(first=false){
   page=doc.addPage([612,792]);pages.push(page);
   if(first){
-   let top=750;const companyX=logo?190:36,companyWidth=logo?215:330;
-   if(logo){const scale=Math.min(138/logo.width,60/logo.height);page.drawImage(logo,{x:36,y:top-logo.height*scale,width:logo.width*scale,height:logo.height*scale});}
-   for(const s of wrap(company.name,companyWidth,14,bold).filter(Boolean)){text(s,companyX,top,14,bold);top-=18;}
-   if(company.name)top-=3;
-   for(const value of [company.address,company.phone,company.email,company.website].filter(Boolean))for(const s of wrap(value,companyWidth,9)){text(s,companyX,top,9,font,gray);top-=13;}
-   right(label,576,746,21,bold);right(q.number,576,721,12,bold);
-   right(new Date(q.createdAt).toLocaleDateString('en-US',{timeZone:'America/New_York'}),576,700,9,font,gray);
-   if(q.validUntil&&!isOrder)right('Valid through '+q.validUntil,576,683,9,font,gray);
-   y=Math.min(top-9,665);line(y);y-=26;
+   const logoScale=logo?Math.min(86/logo.width,72/logo.height):0,logoWidth=logo?logo.width*logoScale:0,logoHeight=logo?logo.height*logoScale:0;
+   const companyX=logo?36+logoWidth+18:36,companyWidth=576-companyX;let top=745;
+   if(logo)page.drawImage(logo,{x:36,y:758-logoHeight,width:logoWidth,height:logoHeight});
+   for(const s of wrap(company.name,companyWidth,15,bold).filter(Boolean)){text(s,companyX,top,15,bold);top-=20;}
+   if(company.name)top-=2;
+   const contactLine=[phone(company.phone),company.email].filter(Boolean).join('   |   ');
+   for(const value of [company.address,contactLine,company.website].filter(Boolean))for(const s of wrap(value,companyWidth,9)){text(s,companyX,top,9,font,gray);top-=13;}
+   y=Math.min(top-12,758-logoHeight-16);line(y);y-=29;
+   text((isOrder?'Order ':'Proposal ')+q.number,36,y,14,bold);
+   right(new Date(q.createdAt).toLocaleDateString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',year:'numeric'}),576,y+1,9,font,gray);
+   y-=31;
   }else{
    text(label+'  '+q.number,36,751,11,bold);
    right(wrap(company.name||'',300,9)[0],576,751,9,font,gray);line(735);y=712;
@@ -60,18 +63,24 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
   right('QTY',412,y-12,8,bold);right('UNIT PRICE',488,y-12,8,bold);right('AMOUNT',566,y-12,8,bold);y-=32;
  }
  newPage(true);
- const customer=[...wrap([c.firstName,c.lastName].filter(Boolean).join(' '),260,11,bold).map(s=>[s,11,bold]),...[c.address,c.phone,c.email].filter(Boolean).flatMap(s=>wrap(s,260,9).map(r=>[r,9,font]))];
- const jobName=wrap(q.name,235,11,bold),blockHeight=Math.max(customer.length*15,jobName.length*15)+40;ensure(blockHeight);
- text('CUSTOMER',36,y,8,bold,gray);text(isOrder?'ORDER DETAILS':'QUOTE DETAILS',330,y,8,bold,gray);y-=21;
+ const customerName=[c.firstName,c.lastName].filter(Boolean).join(' ');
+ const customer=[...wrap(customerName,260,11,bold).map(s=>[s,11,bold]),...[c.address,phone(c.phone),c.email].filter(Boolean).flatMap(s=>wrap(s,260,9).map(r=>[r,9,font]))];
+ const normalized=value=>clean(value).trim().replace(/\s+/g,' ').toLowerCase();
+ const jobName=normalized(q.name)&&normalized(q.name)!==normalized(customerName)?wrap(q.name,235,11,bold):[];
+ const validUntil=!isOrder&&q.validUntil?'Valid through '+q.validUntil:'';
+ const blockHeight=Math.max(customer.length*15,jobName.length*15+(validUntil?20:0))+40;ensure(blockHeight);
+ text('PREPARED FOR',36,y,8,bold,gray);if(jobName.length)text('PROJECT',330,y,8,bold,gray);y-=19;
  let cy=y;for(const [s,size,f]of customer){text(s,36,cy,size,f);cy-=15;}
  let jy=y;for(const s of jobName){text(s,330,jy,11,bold);jy-=15;}
- y=Math.min(cy,jy)-23;tableHeader();
+ if(validUntil){text(validUntil,330,jy,9,font,gray);jy-=20;}
+ y=Math.min(cy,jy)-16;tableHeader();
  for(const [i,o]of q.openings.entries()){
   const priced=t.lines.find(l=>l.openingId===o.id),details=[];
   details.push(productName(lineProduct(o,q)),`${o.width}" W x ${o.height}" H`);
   if(isManufacturingLine(o,q)){
    const config=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' / T / '):'L'.repeat(o.left)+'R'.repeat(o.right);
-   details.push([frameDescription(o),o.mount==='I'?'Inside mount':'Outside mount',frameSetupLabel(o)].filter(Boolean).join(' / '));
+   const frameSides=['3W','3D'].includes(o.sides)?'3-sided frame':['4S','CW'].includes(o.sides)?'':frameSetupLabel(o);
+   details.push([frameDescription(o),o.mount==='I'?'Inside mount':'Outside mount',frameSides].filter(Boolean).join(' / '));
    details.push([({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],o.louver+'" louvers',o.tilt==='Smart'?'Smart View':o.tilt+' tilt',config].filter(Boolean).join(' / '));
    if(o.divider)details.push('Divider rail: '+o.divider+'"');
   }else if(o.notes)details.push(o.notes);

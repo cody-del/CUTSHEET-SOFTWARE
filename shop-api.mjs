@@ -37,7 +37,7 @@ export function shopHandler(service) {
         if(data.units!==undefined&&!['mm','in'].includes(data.units))return json(400,{error:'Choose inches or millimeters.'});
         const {job}=await service.run('job-get',{id:data.id},cookie);
         if(job.held)return json(422,{error:'This order needs owner review before a cutting PDF can be printed.'});
-        const pdf=await createPDF({id:job.id,revision:job.revision,productId:'shuttersmart',name:job.name,number:job.number,customer:'',notes:job.notes,openings:job.openings.map(o=>o.input)},{units:data.units||'mm'});
+        const pdf=await createPDF({id:job.id,revision:job.revision,productId:'shuttersmart',name:job.displayName||job.name,number:job.number,customer:'',notes:job.notes,openings:job.openings.map(o=>o.input)},{units:data.units||'mm'});
         return new Response(pdf,{headers:{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="cut-sheets.pdf"','Cache-Control':'no-store'}});
       }
       if(operation==='sales-document'||operation==='order-pdf'){

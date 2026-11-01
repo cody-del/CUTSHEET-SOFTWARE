@@ -19,7 +19,8 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   const results=job.openings.map(o=>({o,result:calculate(o)}));
   for(const {o,result}of results)if(result.warnings.length)throw new ValidationError(`${o.name}: ${result.warnings.join('; ')}`);
   const pdf=await PDFDocument.create(),regular=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
-  pdf.setTitle(`${job.number||'Job'} - ${combined?'Combined cutting list':'Cut sheets'}`);pdf.setAuthor('Cut sheet');
+  const recipient=String(job.customer||job.displayName||job.name||'').trim(),sheetTitle='Cut Sheet'+(recipient?' - '+recipient:'');
+  pdf.setTitle(sheetTitle+(combined?' - Combined cutting list':''));pdf.setAuthor('Cut sheet');
   const ink=rgb(.08,.08,.08),muted=rgb(.4,.4,.4),pale=rgb(.95,.95,.95),white=rgb(1,1,1),line=rgb(.87,.87,.87);
   const margin=32,width=548,floor=54,length=n=>formatPrintLength(n,units);
   let page,y,openingLabel='';
@@ -27,9 +28,12 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   function wrap(s,w,size=9,font=regular){const lines=[];for(const paragraph of ascii(s).split('\n')){let current='';for(const word of paragraph.split(/\s+/)){if(font.widthOfTextAtSize(word,size)>w){if(current){lines.push(current);current='';}let part='';for(const ch of word){if(font.widthOfTextAtSize(part+ch,size)>w){lines.push(part);part='';}part+=ch;}current=part;continue;}if(current&&font.widthOfTextAtSize(current+' '+word,size)>w){lines.push(current);current=word;}else current+=(current?' ':'')+word;}lines.push(current);}return lines;}
   function rect(x,yy,w,h,color,border=false){page.drawRectangle({x,y:yy,width:w,height:h,color,...(border?{borderColor:line,borderWidth:.5}:{})});}
   function newPage(title=''){
-    page=pdf.addPage([612,792]);text('CUT SHEET'+(job.revision>1?' · REVISION '+job.revision+' · Replaces earlier copies':''),margin,759,9,bold);text(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date()),519,759,8,regular,muted);
-    const jobLines=wrap(`${job.number||'Unnumbered job'}${job.customer?'   '+job.customer:''}`,width,9);
-    jobLines.forEach((l,i)=>text(l,margin,742-i*11,9,regular,muted));y=724-(jobLines.length-1)*11;
+    page=pdf.addPage([612,792]);text(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'}).format(new Date()),519,759,8,regular,muted);
+    const heading=wrap(sheetTitle,440,13,bold);heading.forEach((l,i)=>text(l,margin,759-i*16,13,bold));
+    const jobLines=wrap(job.number?(/^(?:O-)?\d+$/.test(job.number)?'Order ':'Job ')+job.number:'Unnumbered job',96,8);
+    jobLines.forEach((l,i)=>text(l,580-regular.widthOfTextAtSize(l,8),744-i*10,8,regular,muted));
+    y=Math.min(724,740-(heading.length-1)*16,725-(jobLines.length-1)*10);
+    if(job.revision>1){text('Revision '+job.revision+' · Replaces earlier copies',margin,y,9,regular,muted);y-=18;}
     if(title){for(const l of wrap(title,width,16,bold)){text(l,margin,y,16,bold);y-=20;}}
   }
   function ensure(height,title='continued'){if(y-height<floor)newPage(`${openingLabel?openingLabel+'  ':''}${title}`);}

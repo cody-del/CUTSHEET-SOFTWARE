@@ -18,6 +18,13 @@ const date=value=>{if(value==='')return '';if(typeof value!=='string'||!/^\d{4}-
 const get=(collection,id,includeDeleted=false)=>{const record=collection[identifier(id)];if(!record)fail(404,'This record was not found.');if(record.deletedAt&&!includeDeleted)fail(410,'This record is in Deleted. Restore it before using it.');return record;};
 const current=(record,version)=>{if(record.version!==version)fail(409,'This record changed on another device. Reload it before saving again.');};
 const contactName=c=>[c.firstName,c.lastName].filter(Boolean).join(' ');
+function nextOrderNumber(state){
+  // Reserve every issued number, including deleted orders and legacy O- numbers.
+  const issued=Object.values(state.orders).map(o=>/^(?:O-)?(\d+)$/.exec(o.number||'')?.[1]).map(Number).filter(Number.isSafeInteger);
+  const last=Math.max(4999,Number.isSafeInteger(state.salesCounters.order)?state.salesCounters.order:0,...issued);
+  if(!Number.isSafeInteger(last+1))fail(400,'Order number capacity reached.');
+  state.salesCounters.order=last+1;return String(last+1);
+}
 function contactAddress(fields,previous){
   if(['streetAddress','city','zipCode'].some(key=>key in fields)){
     if(fields.state!==undefined&&!['FL','Florida'].includes(fields.state))fail(400,'Contact addresses use Florida.');
@@ -174,7 +181,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     if(!quote.openings.length||quoteTotals(quote).unpriced)fail(400,'Add openings and price every opening before converting to an order.');
     for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');
     const id=randomUUID();if(active(state.orders).length>=1000)fail(400,'Order capacity reached.');
-    const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:'O-'+String(++state.salesCounters.order).padStart(4,'0'),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId,true)),createdAt:time,updatedAt:time,version:1};
+    const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:nextOrderNumber(state),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId,true)),createdAt:time,updatedAt:time,version:1};
     state.orders[id]=order;quote.status='ordered';quote.orderId=id;touch(quote);return {order};
   }
   const orderResult=order=>({order,financials:orderFinancials(order,quoteTotals(order).total),released:!!state.jobs[order.id],readiness:orderReadiness(order,!!state.jobs[order.id]),releaseIssue:order.releaseIssue||''});
