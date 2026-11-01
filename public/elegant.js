@@ -1,11 +1,12 @@
 // Options transcribed from the supplied Elegant EWF ordering screenshots.
 // Fabric catalogs, unshown motor types and supplier prices await the product binder.
 export const EWF_ID='elegant-ewf-shades';
+export const ewfFabric=e=>[e.colorName,e.colorNumber].filter(Boolean).join(' / ');
 export const ewfMeasurement=value=>value==null?'—':String(Math.round(value*10000)/10000);
 export const isElegant=id=>['elegant-shutters',EWF_ID].includes(id);
 export const EWF_OPTIONS=Object.freeze({
  operation:{clutch:'Clutch / chain',motorized:'Motorized'},
- model:{'light-filtering':'Roller shades · Light filtering'},
+ model:{'light-filtering':'Roller shades · Light filtering','room-darkening':'Roller shades · Room darkening'},
  mount:{I:'Inside mount',O:'Outside mount'},
  controlPosition:{right:'Right side',left:'Left side'},
  controlType:{'standard-loop':'Standard cord loop'},
@@ -31,7 +32,7 @@ export function normalizeEwf(value={}){
   if(EWF_OPTIONS[key]){if(!Object.hasOwn(EWF_OPTIONS[key],v))throw new Error('Choose a valid '+key.replace(/[A-Z]/g,m=>' '+m.toLowerCase())+'.');out[key]=String(v);}
   else if(typeof fallback==='boolean'){if(typeof v!=='boolean')throw new Error('Choose yes or no for '+key+'.');out[key]=v;}
   else if(key==='cordLength'){out[key]=v;}
-  else{if(typeof v!=='string'||v.length>120)throw new Error('Keep shade text fields within 120 characters.');out[key]=v.trim();}
+  else{const max=key==='colorName'?255:120;if(typeof v!=='string'||v.length>max)throw new Error('Keep '+(key==='colorName'?'fabric color / number':'shade text fields')+' within '+max+' characters.');out[key]=v.trim();}
  }
  if(out.operation==='clutch'){
   if(!out.customCordLength)out.cordLength=null;
@@ -47,14 +48,14 @@ export function ewfDimensionError(key,value,config){
 export function validateEwfOpening(opening,{complete=false}={}){
  const ewf=normalizeEwf(opening.ewf);
  for(const key of ['width','height']){const error=ewfDimensionError(key,opening[key],ewf);if(error)throw new Error(error);if(complete&&opening[key]==null)throw new Error('Enter width and height.');}
- if(complete&&!ewf.colorName&&!ewf.colorNumber)throw new Error('Enter the fabric color or color number.');
+ if(complete&&!ewf.colorName&&!ewf.colorNumber)throw new Error('Enter the fabric color / number.');
  if(complete&&ewf.customCordLength&&ewf.cordLength==null)throw new Error('Enter the custom cord length.');
  return ewf;
 }
 export function nextEwf(previous){const copy=normalizeEwf(previous);copy.windowLocation='';if(copy.customCordLength)copy.cordLength=null;return copy;}
 export function ewfDetails(opening){
  const e=normalizeEwf(opening.ewf),v=key=>EWF_OPTIONS[key]?.[e[key]]||e[key],yes=key=>e[key]?'Yes':'No';
- const rows=[v('model'),`Fabric: ${[e.colorName,e.colorNumber].filter(Boolean).join(' / ')||'Not selected'}`,v('mount')];
+ const rows=[v('model'),`Fabric: ${ewfFabric(e)||'Not selected'}`,v('mount')];
  if(e.operation==='clutch')rows.push(`Control: ${v('controlPosition')} / ${v('controlType')}`,`Cord: ${v('cordType')}${e.customCordLength?' / Custom length: '+(e.cordLength==null?'Not entered':e.cordLength+' in'):''}`,`Valance: ${v('valance')}`);
  else rows.push(`Motor: ${v('motorType')}`,`Control wand: ${v('wandPosition')} / ${v('wandLength')}`,`Remote: ${v('remote')}`,`Valance: ${v('valance')} / ${e.valanceColor}`,`Charge cord: ${v('chargeCord')} / Wand color: ${v('wandColor')}`,`USB 6' cable with charger: ${yes('usb6')} / USB 10' cable with charger: ${yes('usb10')}`,`Wi-Fi: ${v('wifi')}`);
  rows.push(`Light blocker: ${yes('lightBlocker')} / Hold-down brackets: ${yes('holdDownBrackets')} / Spacer blocks: ${yes('spacerBlocks')}`);

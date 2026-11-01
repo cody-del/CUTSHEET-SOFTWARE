@@ -202,7 +202,7 @@ function bindEwfFields(){
    if(rerender&&[...invalidFields.keys()].some(k=>!(k==='ewf-cordLength'&&(key==='operation'||!value)))){if(el.type==='checkbox')el.checked=o.ewf[key];else el.value=o.ewf[key];return toast('Correct the highlighted fields first.');}
    try{
     if(key==='cordLength')value=value.trim()?parseMeasurement(value):null;
-    o.ewf=normalizeEwf({...o.ewf,[key]:value});invalidFields.delete('ewf-'+key);el.removeAttribute('aria-invalid');
+    o.ewf=normalizeEwf({...o.ewf,...(key==='colorName'?{colorNumber:''}:{}),[key]:value});invalidFields.delete('ewf-'+key);el.removeAttribute('aria-invalid');
     const error=$('#ewf-'+key+'-error');if(error)error.textContent='';
     // A control-system change changes the supplier price; require a fresh unit price.
     if(key==='operation'){delete currentJob().unitPrices[o.id];for(const k of ['width','height','ewf-cordLength','price-unitPrice'])invalidFields.delete(k);}
