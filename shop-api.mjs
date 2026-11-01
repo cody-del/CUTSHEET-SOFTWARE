@@ -11,7 +11,7 @@ const cookieNames={owner:'cutsheet_owner',shop:'cutsheet_shop'};
 export function shopHandler(service) {
   return async request=>{
     const url=new URL(request.url),operation=url.pathname.split('/').pop();
-    if(![...salesOperations,...workspaceOperations,...revisionOperations,'sales-document','order-pdf','job-get','job-pdf','session','jobs','dashboard','login','logout','pair','publish','plan','pairing','revoke','timer','line','resolve','stage','sync','heartbeat'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
+    if(![...salesOperations,...workspaceOperations,...revisionOperations,'sales-document','order-pdf','job-get','job-pdf','session','jobs','dashboard','login','logout','pair','shop-login','shop-access-save','publish','plan','pairing','revoke','timer','line','resolve','stage','sync','heartbeat'].includes(operation))return json(404,{error:'Unknown shop endpoint.'});
     const read=['company-get','workspace','workspace-backup','sales','session','jobs','dashboard'].includes(operation);
     if(request.method!==(read?'GET':'POST'))return json(405,{error:read?'GET required.':'POST required.'});
     if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});

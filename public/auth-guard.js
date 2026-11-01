@@ -20,7 +20,7 @@ async function enter(){
    await offlineShopStore.clear().catch(()=>{});
    clearPrivateCache();
    sessionStorage.removeItem('cutsheet-account-identity-v1');
-   if(location.pathname==='/shop.html')return session; // Pairing form only; no records.
+   if(location.pathname==='/shop.html')return session; // Shop sign-in form only; no records.
    redirect();return new Promise(()=>{});
   }
   if(session.role!=='shop')await offlineShopStore.clear().catch(()=>{});

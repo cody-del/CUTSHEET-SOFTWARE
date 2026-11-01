@@ -3,7 +3,7 @@ import {shopHandler} from './shop-api.mjs';
 import {AccessError} from './account-auth.mjs';
 
 const json=(status,data)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
-export function accountShopHandler({store,auth,secret}){
+export function accountShopHandler({store,auth,secret,shopOwnerEmail=process.env.CUTSHEET_SHOP_OWNER_EMAIL||'5dayshutters@gmail.com'}){
  const serviceFor=identity=>createShopService({store:store.workspace(identity.ownerId),authenticatedActor:identity.actor||null,password:'Account access only; legacy login disabled',secret});
  const deviceCookies=identity=>identity.device?{shop:identity.device}:{};
  async function principal(request,headers){
@@ -17,13 +17,17 @@ export function accountShopHandler({store,auth,secret}){
    if(request.headers.get('origin')&&request.headers.get('origin')!==url.origin)return json(403,{error:'Invalid origin.'});
    if(operation==='logout')return auth.handle(new Request(new URL('/api/auth/logout',url),request));
    if(operation==='login')return json(401,{error:'Sign in with your email and password.',authMode:'account'});
-   if(operation==='pair'){
+   if(operation==='pair'||operation==='shop-login'){
     if(request.method!=='POST'||!request.headers.get('content-type')?.startsWith('application/json'))return json(405,{error:'POST JSON required.'});
-    await auth.limit(request,'pair');
+    await auth.limit(request,operation);
     const body=await request.text();if(body.length>2000)return json(413,{error:'Request too large.'});
     let data;try{data=JSON.parse(body);}catch{return json(400,{error:'Invalid request.'});}
-    const ownerId=await store.pairingOwner(data?.code);if(!ownerId||!await store.ownerActive(ownerId))return json(401,{error:'That connection code is invalid or expired.'});
-    const result=await serviceFor({ownerId}).run('pair',data,{});
+    if(!data||Array.isArray(data)||typeof data!=='object')return json(400,{error:'Invalid request.'});
+    // This installation belongs to Five Day. Never accept an owner/workspace
+    // selector from an anonymous login request.
+    const ownerId=operation==='shop-login'?await store.shopOwner(shopOwnerEmail):await store.pairingOwner(data.code);
+    if(!ownerId||!await store.ownerActive(ownerId))return json(401,{error:operation==='shop-login'?'That shop code is not correct. Ask the owner for the current shop code.':'That connection code is invalid or expired.'});
+    const result=await serviceFor({ownerId}).run(operation,{code:data.code,name:data.name,client:request.headers.get('x-nf-client-connection-ip')||'local'},{});
     if(result.error)return json(result.status||400,{error:result.error});
     const response=json(200,{ok:true});auth.clear(response.headers);
     response.headers.append('Set-Cookie',`${auth.names.device}=${auth.deviceToken(ownerId,result.token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${result.maxAge}`);

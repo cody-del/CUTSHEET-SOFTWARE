@@ -8,6 +8,7 @@ import {progress,production,productionChecks,openingCheckStatus,openingProductio
 import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
 import {workerResponse} from './worker-view.mjs';
 import {revisionOperations,runRevision} from './job-revisions.mjs';
+import {saveShopCode,verifyShopCode,shopAccessStatus} from './shop-access.mjs';
 
 const readOperations=new Set(['session','jobs','dashboard','job-get','company-get','workspace','workspace-backup','sales','sales-get','draft-get','job-revision-get','job-revision-preview']);
 const hash=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -74,7 +75,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
     if(local||validOwner(cookie.owner||''))return {role:'owner',id:'owner',name:local?'Owner · local preview':'Owner'};
     return null;
   }
-  function requireActor(state,cookie,owner=false){const a=actor(state,cookie);if(!a)fail(401,'Connect this iPad or sign in as the owner.');if(owner&&a.role!=='owner')fail(403,'Only the owner can do that.');return a;}
+  function requireActor(state,cookie,owner=false){const a=actor(state,cookie);if(!a)fail(401,'Please sign in with the shop code or the owner account.');if(owner&&a.role!=='owner')fail(403,'Only the owner can do that.');return a;}
   function jobFor(state,data){const j=state.jobs[identifier(data.id)];if(!j||j.deletedAt||state.orders?.[j.id]?.deletedAt)fail(404,'This shop job was removed from Production.');if(j.version!==data.version)fail(409,'This cut sheet changed on another device. Review the latest values and try again.');return j;}
   return {
     configured,
@@ -98,8 +99,8 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         for(const [key,value]of Object.entries(state.attempts))if(value.until<time)delete state.attempts[key];
         if(operation==='session')return {configured:true,local,publicOwnerAccess:publicAccess,...(actor(state,cookie)||{role:null})};
         // Temporary public visitors must not create connections that outlive this mode.
-        if(publicAccess&&['pair','pairing','revoke'].includes(operation))fail(403,'Device setup is unavailable during public access. Open the shop page directly; no connection code is needed.');
-        if(operation==='login'||operation==='pair'){
+        if(publicAccess&&['pair','pairing','revoke','shop-login','shop-access-save'].includes(operation))fail(403,'Device setup is unavailable during public access. Open the shop page directly; no connection code is needed.');
+        if(operation==='login'||operation==='pair'||operation==='shop-login'){
           const key=operation+':'+hash(data.client||'unknown');const attempt=state.attempts[key]||{count:0,until:time+15*60000};
           // Return errors here (rather than throw) so failed attempts are committed.
           if(attempt.count>=10)return {error:'Too many attempts. Try again in 15 minutes.',status:429};
@@ -107,6 +108,12 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           if(operation==='login'){
             if(!equal(data.password||'',password)||!password)return {error:'Incorrect owner password.',status:401};
             delete state.attempts[key];return {cookie:'owner',token:ownerToken(),maxAge:43200};
+          }
+          if(operation==='shop-login'){
+            if(!await verifyShopCode(state,data.code))return {error:'That shop code is not correct. Ask the owner for the current shop code.',status:401};
+            const name=text(data.name||'Shop iPad','device name',60),token=randomBytes(32).toString('base64url'),deviceId=randomBytes(12).toString('hex');
+            state.devices[hash(token)]={id:deviceId,name,source:'shop-code',expires:time+180*86400000,createdAt:time,revoked:false};
+            delete state.attempts[key];return {cookie:'shop',token,maxAge:180*86400};
           }
           const code=String(data.code||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase(),p=state.pairings[hash(code)];
           if(!p||p.expires<time)return {error:'That connection code is invalid or expired.',status:401};
@@ -118,7 +125,10 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(revisionOperations.includes(operation)){const a=requireActor(state,cookie,true);return runRevision(state,operation,data,a,time);}
         if(salesOperations.includes(operation)){const a=requireActor(state,cookie,true);return runSales(state,operation,data,time,release=>releaseJob(state,release,a,time),a.name);}
         if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
-        const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard'].includes(operation));
+        const a=requireActor(state,cookie,['publish','plan','pairing','revoke','resolve','dashboard','shop-access-save'].includes(operation));
+        if(operation==='shop-access-save'){
+          try{return {ok:true,shopAccess:await saveShopCode(state,data,time)};}catch(e){fail(e.status||503,e.status?e.message:'The shop code could not be saved. Try again.');}
+        }
         if(operation==='heartbeat'){
           if(a.role==='shop'){const d=state.devices[hash(cookie.shop)];d.lastSeenAt=time;d.pendingUpdates=Math.max(0,Math.min(1000,Number(data.pendingUpdates)||0));}
           return {ok:true,serverTime:time};
@@ -126,6 +136,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(operation==='jobs'||operation==='dashboard'){
           return {jobs:Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]?.deletedAt).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
+              shopAccess:shopAccessStatus(state),
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt,lastSeenAt,pendingUpdates})=>({id,name,createdAt,lastSeenAt,pendingUpdates}))}:{})};
         }
         if(operation==='job-get'){

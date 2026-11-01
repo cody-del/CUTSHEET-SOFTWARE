@@ -5,11 +5,12 @@ import {createShopService} from '../shop-service.mjs';
 import {shopHandler} from '../shop-api.mjs';
 
 test('company backup restores business records without restoring device access or idle timer hours',()=>{
- const time=Date.UTC(2026,9,26,12),state={schema:1,contacts:{one:{name:'Sample customer'}},quotes:{q:{total:123}},orders:{o:{payments:[{amount:50}]}},drafts:{d:{openings:[]}},draftImports:{legacy:{id:'d'}},draftCounter:3,companyProfile:{name:'Company',terms:'Terms',logo:{data:'image'}},productPricing:{shuttersmart:{rateCents:123}},pricing:{rateCents:123},salesCounters:{quote:7,order:4},jobs:{j:{elapsedMs:1000,startedAt:time-5000,openings:[{lines:[{completed:2,status:'partial'}]}]}},devices:{secret:'session'},pairings:{code:'private'},attempts:{key:'private'}};
+ const time=Date.UTC(2026,9,26,12),state={schema:1,contacts:{one:{name:'Sample customer'}},quotes:{q:{total:123}},orders:{o:{payments:[{amount:50}]}},drafts:{d:{openings:[]}},draftImports:{legacy:{id:'d'}},draftCounter:3,companyProfile:{name:'Company',terms:'Terms',logo:{data:'image'}},productPricing:{shuttersmart:{rateCents:123}},pricing:{rateCents:123},salesCounters:{quote:7,order:4},jobs:{j:{elapsedMs:1000,startedAt:time-5000,openings:[{lines:[{completed:2,status:'partial'}]}]}},devices:{secret:'session'},pairings:{code:'private'},attempts:{key:'private'},shopAccess:{salt:'private',hash:'private'}};
  const backup=JSON.parse(JSON.stringify(createWorkspaceBackup(state,time))),restored=readWorkspaceBackup(backup);
  for(const key of ['contacts','quotes','orders','drafts','draftImports','draftCounter','companyProfile','productPricing','pricing','salesCounters'])assert.deepEqual(restored[key],state[key]);
  assert.equal(restored.jobs.j.openings[0].lines[0].completed,2);assert.equal(restored.jobs.j.startedAt,null);assert.equal(restored.jobs.j.elapsedMs,6000);
  assert.equal(state.jobs.j.startedAt,time-5000);
+ assert.equal(backup.data.shopAccess,undefined);assert.equal(restored.shopAccess,undefined);
  for(const key of ['devices','pairings','attempts']){assert.equal(backup.data[key],undefined);assert.deepEqual(restored[key],{});}
 });
 

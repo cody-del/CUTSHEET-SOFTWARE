@@ -34,6 +34,7 @@ export function accountStore(pool){
   },
   async sessionActive(id,sessionId){if(!uuid.test(sessionId||''))return false;await init();const {rows}=await pool.query('SELECT id FROM auth.sessions WHERE id=$1 AND user_id=$2',[sessionId,valid(id)]);return rows.length===1;},
   async ownerActive(id){await init();const {rows}=await pool.query('SELECT user_id FROM cutsheet_private.accounts WHERE user_id=$1 AND disabled=false',[valid(id)]);return rows.length===1;},
+  async shopOwner(email){await init();const {rows}=await pool.query('SELECT user_id FROM cutsheet_private.accounts WHERE email=$1 AND disabled=false',[String(email).toLowerCase()]);return rows.length===1?rows[0].user_id:null;},
   async rememberPair(code,ownerId){await init();await pool.query(`INSERT INTO cutsheet_private.pairings (code_hash,owner_id,expires_at) VALUES ($1,$2,now()+interval '10 minutes') ON CONFLICT (code_hash) DO UPDATE SET owner_id=excluded.owner_id,expires_at=excluded.expires_at`,[digest(code.replace(/[^a-zA-Z0-9]/g,'').toUpperCase()),valid(ownerId)]);},
   async pairingOwner(code){await init();const {rows}=await pool.query('SELECT owner_id FROM cutsheet_private.pairings WHERE code_hash=$1 AND expires_at>now()',[digest(String(code||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase())]);return rows[0]?.owner_id;},
   async backupOwners(){await init();const {rows}=await pool.query('SELECT user_id FROM cutsheet_private.accounts WHERE disabled=false');return rows.map(r=>r.user_id);},

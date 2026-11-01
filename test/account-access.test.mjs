@@ -43,7 +43,7 @@ async function fixture(t,{recoveryError=null}={}){
   resetPasswordForEmail:async()=>({error:recoveryError}),updateUser:async()=>({error:null})
  }});
  const auth=createAccountAuth({store,env:{CUTSHEET_SESSION_SECRET:secret},clientFactory,settingsFetch:async()=>({ok:true,json:async()=>({external:{email:true},mailer_autoconfirm:false})})});
- const api=accountShopHandler({store,auth,secret});
+ const api=accountShopHandler({store,auth,secret,shopOwnerEmail:'a@example.invalid'});
  const req=(action,data,id=A,extra={})=>new Request('https://example.test/api/shop/'+action,{method:data===undefined?'GET':'POST',headers:{...(data===undefined?{}:{'content-type':'application/json'}),...(id?{cookie:'__Host-cutsheet-access='+token(id===A?SA:SB),'x-cutsheet-account':id}:{}),...extra},...(data===undefined?{}:{body:JSON.stringify(data)})});
  const run=async(action,data,id=A,extra={})=>{const response=await api.handler(req(action,data,id,extra));return {status:response.status,value:await response.json(),response};};
  const enroll=async id=>{const user=users[token(id===A?SA:SB)];await store.approveEmail(user.email);assert.equal(await store.enroll(user),true);};
@@ -151,6 +151,43 @@ test('paired shop iPads stay within the account that issued their code and can b
 
 test('deployed SQL is exactly the reviewed migration',async()=>{
  assert.equal(schema.sql,await readFile(new URL('../supabase/migrations/20261019125949_account_workspaces.sql',import.meta.url),'utf8'));
+});
+
+test('reusable shop code stays in the configured account, hides private data, and rotation revokes old logins',async t=>{
+ const f=await fixture(t);await f.enroll(A);await f.enroll(B);
+ const codeA='test only shared code A',codeB='test only shared code B';
+ for(const [id,code]of [[A,codeA],[B,codeB]])assert.equal((await f.run('shop-access-save',{code,confirmCode:code},id)).status,200);
+ await f.run('publish',{job:{id:'shared-worker-job',name:'Private Customer',number:'A-001',openings:[opening]}});
+ await f.run('publish',{job:{id:'other-worker-job',name:'Other Customer',number:'B-001',openings:[opening]}},B);
+ assert.equal((await f.run('shop-login',{code:codeB,ownerId:B,email:'b@example.invalid'},null)).status,401);
+ const sessions=[];
+ for(let i=0;i<2;i++){
+  const login=await f.run('shop-login',{code:codeA,ownerId:B,email:'b@example.invalid'},null);
+  assert.equal(login.status,200);assert.deepEqual(login.value,{ok:true});
+  const header=login.response.headers.getSetCookie().find(c=>c.startsWith('__Host-cutsheet-device=')&&!c.startsWith('__Host-cutsheet-device=;'));
+  assert.match(header,/HttpOnly; Secure; SameSite=Strict; Max-Age=15552000/);
+  const headers={cookie:header.split(';')[0],'x-cutsheet-account':A};sessions.push(headers);
+  const session=(await f.run('session',undefined,null,headers)).value;assert.equal(session.role,'shop');assert.equal(session.ownerId,A);
+  const jobs=(await f.run('jobs',undefined,null,headers)).value;
+  assert.deepEqual(jobs.jobs.map(j=>j.id),['shared-worker-job']);
+  for(const value of ['Private Customer','Other Customer','shopAccess',codeA,'salt','hash'])assert.ok(!JSON.stringify(jobs).includes(value));
+  for(const action of ['sales','company-get','workspace','workspace-backup','dashboard'])assert.equal((await f.run(action,undefined,null,headers)).status,403);
+  assert.equal((await f.run('shop-access-save',{code:codeB,confirmCode:codeB},null,headers)).status,403);
+  assert.equal((await f.run('jobs',undefined,null,{...headers,'x-cutsheet-account':B})).status,409);
+  assert.equal((await f.run('jobs',undefined,null,{...headers,cookie:headers.cookie+'tampered'})).status,401);
+ }
+ assert.notEqual(sessions[0].cookie,sessions[1].cookie);
+ const board=(await f.run('dashboard')).value;
+ assert.equal(board.shopAccess.enabled,true);assert.deepEqual(Object.keys(board.shopAccess).sort(),['enabled','updatedAt']);
+ assert.equal((await f.run('workspace-backup')).value.data.shopAccess,undefined);
+ const stored=await f.store.workspace(A).transaction(s=>s.shopAccess,{readOnly:true});
+ assert.ok(stored.hash&&stored.salt);assert.ok(!JSON.stringify(stored).includes(codeA));
+ const next='replacement test only code';await f.run('shop-access-save',{code:next,confirmCode:next});
+ for(const headers of sessions)assert.equal((await f.run('jobs',undefined,null,headers)).status,401);
+ assert.equal((await f.run('shop-login',{code:codeA},null)).status,401);
+ assert.equal((await f.run('shop-login',{code:next},null)).status,200);
+ await f.db.query('UPDATE cutsheet_private.accounts SET disabled=true WHERE user_id=$1',[A]);
+ assert.equal((await f.run('shop-login',{code:next},null)).status,401);
 });
 
 

@@ -75,7 +75,7 @@ function settings(){
    <div class="settings-actions"><a class="btn" href="/contacts.html#pricing">Manage pricing</a></div>
   </section>
   <section class="settings-section">
-   <h2>Shop devices</h2><p>Connect and manage the shop’s iPads.</p>
+   <h2>Shop access</h2><p>Set the shared shop code and manage the shop’s iPads.</p>
    <div class="settings-actions"><a class="btn" href="/owner.html?settings=devices">Manage shop access</a></div>
   </section>
   <section class="settings-section">
