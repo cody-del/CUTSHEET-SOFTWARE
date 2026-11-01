@@ -3,6 +3,7 @@ import {accountFetch} from './account-storage.js';
 import {accountSession} from './auth-guard.js';
 import {createOfflineShop} from './shop-offline.js';
 import {offlineAccess} from './shop-offline-store.js';
+import {createOfflineShell} from './shop-offline-shell.js';
 import {workspaceNav,remember,sessionValue,keepScroll,restoreScroll,navigateState,installNavigationGuard} from './workspace-nav.js';
 import {shopRequest,cachedShop,warmWorkspace} from './shop-client.js';
 import {progress,elapsed,schedule,duration,productionStages,productionChecks,production,productionStageStatus,productionColumns,openingCheckStatus,openingProduction,openingProgress,completedOpenings} from './shop-state.js';
@@ -14,6 +15,8 @@ const $=s=>document.querySelector(s),h=s=>String(s??'').replace(/[&<>"']/g,c=>({
 const mode=document.body.dataset.workshop,owner=mode==='owner';
 const offline=createOfflineShop({request:shopRequest});
 let offlineReady=false,lastHeartbeat=0,lastConfirmedSync=0;
+const offlineShell=createOfflineShell({notify:()=>{if(session?.role==='shop')render();}});
+const prepareOfflineShell=()=>{if(session?.role==='shop')void offlineShell.prepare();};
 const pendingSync=()=>offline.view()?.queue||[];
 const canWorkOffline=()=>session?.role==='shop'&&offlineReady&&offlineAccess(offline.view());
 let heldSheet=null,detailError='';
@@ -118,6 +121,7 @@ async function loadLatest(quiet){
     if(session.role==='shop'&&pendingSync().some(e=>!e.error))await offline.flush();
     const data=await shopRequest(isOwner()?'dashboard':'jobs',undefined,{force:true});
     if(session.role==='shop'){
+      if(offlineShell.state()==='idle')prepareOfflineShell();
       try{await offline.accept(session,data);offlineReady=true;data.jobs=offline.view().jobs;}catch{offlineReady=false;}
       if(Date.now()-lastHeartbeat>60000){await shopRequest('heartbeat',{pendingUpdates:pendingSync().length});lastHeartbeat=Date.now();}
     }
@@ -177,7 +181,7 @@ function bind(){
   bindJobLinks();
   document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;remember('production-filter:'+mode,filter);const u=new URL(location.href);u.searchParams.set('filter',filter);history.replaceState(history.state,'',u);render();});
   document.querySelectorAll('[data-unit]').forEach(b=>b.onclick=()=>{units=b.dataset.unit;render();});
-  document.querySelectorAll('[data-action]').forEach(b=>b.onclick=async()=>{const action=b.dataset.action;if(action==='sync-review')return reviewWaiting();if(action==='sync-export')return exportWaiting();if(action==='back'){if(history.state?.fromBoard)history.back();else navigateState(location.pathname);return;}if(action==='print-pdf')return downloadPrintPDF();if(action==='refresh')await refresh();if(action==='plan')planDialog();if(action==='pairing')pairingDialog();if(action==='logout'){location.href='/auth.html?mode=logout';}});
+  document.querySelectorAll('[data-action]').forEach(b=>b.onclick=async()=>{const action=b.dataset.action;if(action==='offline-prepare')return prepareOfflineShell();if(action==='sync-review')return reviewWaiting();if(action==='sync-export')return exportWaiting();if(action==='back'){if(history.state?.fromBoard)history.back();else navigateState(location.pathname);return;}if(action==='print-pdf')return downloadPrintPDF();if(action==='refresh')await refresh();if(action==='plan')planDialog();if(action==='pairing')pairingDialog();if(action==='logout'){location.href='/auth.html?mode=logout';}});
   document.querySelectorAll('[data-timer]').forEach(b=>b.onclick=()=>change('timer',{id:current().id,version:current().version,action:b.dataset.timer},b.dataset.timer==='start'?'Cutting timer started.':'Cutting timer paused.'));
   document.querySelectorAll('[data-cut]').forEach(b=>b.onclick=()=>{const job=current(),line=job.openings.flatMap(o=>o.lines).find(l=>l.id===b.dataset.line);if(b.dataset.cut==='partial')return partialDialog(line);if(b.dataset.cut==='not-cut'&&line.completed)return confirmReset(line);if(line.status===b.dataset.cut)return;change('line',{id:job.id,version:job.version,lineId:line.id,status:b.dataset.cut});});
   document.querySelectorAll('[data-alert]').forEach(b=>b.onclick=()=>{const job=jobs.find(j=>j.id===b.dataset.id);change('resolve',{id:job.id,version:job.version,lineId:b.dataset.line,status:b.dataset.alert},b.dataset.alert==='resolved'?'Material marked ready. Cut progress is unchanged.':'Material request acknowledged.');});
@@ -189,14 +193,14 @@ installNavigationGuard({onRoute:()=>{selected=new URLSearchParams(location.searc
 window.addEventListener('shop-access-reset',()=>{session=null;jobs=[];devices=[];pendingOrders=[];heldSheet=null;loaded=false;$('#shop-dialog').close();render();});
 session=accountSession||cachedShop('session')||null;
 if(session?.role==='shop'){const saved=await offline.hydrate().catch(()=>null);if(saved){jobs=saved.jobs;loaded=true;offlineReady=true;}
- if('serviceWorker' in navigator)navigator.serviceWorker.register('/shop-service-worker.js').catch(()=>notify('Offline reopening could not be enabled. Keep this page open until connected.'));
+ prepareOfflineShell();
 }
 const initial=session?.role?cachedShop(isOwner()?'dashboard':'jobs'):null;
 if(initial){jobs=session?.role==='shop'&&offlineReady?offline.view().jobs:initial.jobs;devices=initial.devices||[];pendingOrders=initial.pendingOrders||[];loaded=true;}
 render();
 try{session=await shopRequest('session');if(!initial)render();if(session.role)await refresh();void warmWorkspace();}catch(error){connectionError=error.message;render();}
 setInterval(()=>{if(session?.role==='shop'&&offlineReady&&(!navigator.onLine||connectionError)&&!canWorkOffline()&&loaded){jobs=[];loaded=false;connectionError='Reconnect to renew this iPad’s offline access. Waiting updates are kept.';render();}updateClocks();if(navigator.onLine&&session?.role&&!busy&&!$('#shop-dialog').open&&!document.hidden&&Date.now()-lastSync>5000)refresh({quiet:true});},1000);
-window.addEventListener('online',()=>refresh());
+window.addEventListener('online',()=>{if(offlineShell.state()!=='ready')prepareOfflineShell();refresh();});
 window.addEventListener('offline',()=>{connectionError=canWorkOffline()?'Offline. Shop progress saves on this iPad and will sync when connected.':'Offline. Reconnect before saving changes.';render();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!$('#shop-dialog').open)refresh({quiet:true});});
 
@@ -205,8 +209,9 @@ function syncNotice(){
  const waiting=pendingSync(),blocked=waiting.filter(e=>e.error);
  if(!offlineReady)return '<p class="shop-sync-warning" role="status">Offline saving is not ready on this device. Keep Wi-Fi connected.</p>';
  if(!canWorkOffline())return '<p class="shop-sync-warning" role="status">Reconnect to renew shop access. Waiting updates remain saved on this iPad.</p>';
- if(!waiting.length)return `<p class="shop-sync-time" role="status">${connectionError?'Saved jobs available offline for this shift.':'Saved to workshop · offline copies ready'} · ${new Date(offline.view().verifiedAt).toLocaleTimeString()}</p>`;
- return `<section class="shop-sync-warning" role="status"><strong>${waiting.length} update${waiting.length===1?'':'s'} saved on this iPad${blocked.length?' · needs review':' · waiting to sync'}</strong><p>The owner sees these changes after they sync.</p>${blocked.length?'<button class="btn" data-action="sync-review">Review waiting updates</button>':'<button class="btn" data-action="refresh">Sync now</button>'} <button class="text-btn" data-action="sync-export">Download waiting updates</button></section>`;
+ const shellNotice=offlineShell.state()==='ready'?'':`<p class="shop-sync-warning" role="status">${offlineShell.state()==='error'?'Offline reopening is not ready. Keep Wi-Fi on. Close other shop tabs, then retry. <button class="text-btn" data-action="offline-prepare">Retry offline setup</button>':'Preparing this page for offline use. Keep Wi-Fi on until ready.'}</p>`;
+ if(!waiting.length)return shellNotice+`<p class="shop-sync-time" role="status">${connectionError?(offlineShell.state()==='ready'?'Saved jobs available offline for this shift.':'Job data saved on this iPad. Keep this page open.'):offlineShell.state()==='ready'?'Saved to workshop · ready for offline use':'Saved to workshop'} · ${new Date(offline.view().verifiedAt).toLocaleTimeString()}</p>`;
+ return shellNotice+`<section class="shop-sync-warning" role="status"><strong>${waiting.length} update${waiting.length===1?'':'s'} saved on this iPad${blocked.length?' · needs review':' · waiting to sync'}</strong><p>The owner sees these changes after they sync.</p>${blocked.length?'<button class="btn" data-action="sync-review">Review waiting updates</button>':'<button class="btn" data-action="refresh">Sync now</button>'} <button class="text-btn" data-action="sync-export">Download waiting updates</button></section>`;
 }
 function exportWaiting(){const blob=new Blob([JSON.stringify({format:'cutsheet-waiting-shop-updates',createdAt:new Date().toISOString(),updates:pendingSync()},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='waiting-shop-updates.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function reviewWaiting(){

@@ -241,7 +241,7 @@ Production refreshes every five seconds while the screen is active; other owner 
 
 ### Shop iPad: temporary loss of internet
 
-1. Open `/shop.html` while connected and wait for **Saved to workshop · offline copies ready**. Pair the iPad once using the owner's Settings → Shop devices code.
+1. Open `/shop.html` while connected and wait for **Saved to workshop · ready for offline use**. This appears only after the controlling service worker confirms every required page file is cached and the shop data is saved. Keep Wi-Fi on while the page says it is preparing offline access. Pair the iPad once using the owner's Settings → Shop devices code.
 2. Published cut sheets remain available for up to **12 hours after the last successful connection**. Workers can update cut quantities, material requests and finishing checks. Only the restricted worker view is stored in IndexedDB; customer details and prices are excluded by the server. The service worker caches static shop assets only, never API responses or owner pages.
 3. **Saved on this iPad · waiting to sync** means the owner has not received those updates yet. Keep this browser's data; do not clear Safari storage or use private browsing. Clearing browser data loses unsynced work. Safari may also evict storage under device pressure.
 4. Reconnect and keep the shop page open. Pending updates retry automatically. Every event has a persistent ID, target baseline and manufacturing revision; retries apply once. Different lines can merge. Conflicting edits or revised/deleted cut sheets require review and are kept in the queue, with a download option, instead of silently overwriting current work.
