@@ -3,7 +3,8 @@ import {productName,productId,lineProduct,isManufacturingLine} from './public/pr
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {frameDescription,frameSetupLabel} from './public/frames.js';
 import {EWF_ID,ewfDetails,ewfMeasurement} from './public/elegant.js';
-const clean=value=>String(value??'').normalize('NFKD').replace(/[–—]/g,'-').replace(/×/g,'x').replace(/·/g,' / ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x20-\x7e\n]/g,'');
+import {BROADLEAF_ID,broadleafDetails} from './public/broadleaf.js';
+const clean=value=>String(value??'').replace(/½/g,' 1/2').replace(/¼/g,' 1/4').replace(/¾/g,' 3/4').replace(/″/g,'"').replace(/′/g,"'").normalize('NFKD').replace(/[–—]/g,'-').replace(/×/g,'x').replace(/·/g,' / ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x20-\x7e\n]/g,'');
 const money=cents=>cents==null?'Not priced':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
 const phone=value=>{const digits=String(value||'').replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'');return digits.length===10?`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`:value;};
 
@@ -97,6 +98,7 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
    if(o.divider)details.push('Divider rail: '+o.divider+'"');
   }else{
    if(productId(lineProduct(o,q))===EWF_ID)details.push(...ewfDetails(o));
+   if(productId(lineProduct(o,q))===BROADLEAF_ID)details.push(...broadleafDetails(o,{compact:true}));
    if(o.notes)details.push(o.notes);
   }
   // Workshop-only notes and machining dimensions do not belong on a client order.

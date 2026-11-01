@@ -5,6 +5,7 @@ import {quotePricing} from './public/quote-pricing.js';
 import {PRODUCTS,productId,productFor,productName,lineProduct,isManufacturingLine,manufacturingOpenings,hasManufacturingLines,quoteProductNames,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {EWF_ID,validateEwfOpening} from './public/elegant.js';
 import {EWF_PRICING} from './public/ewf-catalog.js';
+import {BROADLEAF_ID,validateBroadleafOpening} from './public/broadleaf.js';
 import {randomUUID} from 'node:crypto';
 import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {production} from './public/shop-state.js';
@@ -71,6 +72,7 @@ function openings(value,record,pricingFor,allowIncomplete=false){
       for(const key of ['width','height'])if(!(allowIncomplete&&o[key]==null)&&(typeof o[key]!=='number'||!Number.isFinite(o[key])||o[key]<=0||o[key]>10000))fail(400,'Enter dimensions greater than zero and no larger than 10,000 inches.');
       if(!Number.isInteger(o.quantity)||o.quantity<1||o.quantity>100)fail(400,'Quantity must be a whole number between 1 and 100.');
       if(productId(identity)===EWF_ID){try{o.ewf=validateEwfOpening({...o,ewf:raw.ewf});}catch(e){fail(400,o.name+': '+e.message);}}
+      if(productId(identity)===BROADLEAF_ID&&(raw.broadleaf!==undefined||previous?.broadleaf)){try{o.broadleaf=validateBroadleafOpening({...o,broadleaf:raw.broadleaf??previous.broadleaf});}catch(e){fail(400,o.name+': '+e.message);}}
     }
     return o;
   });
@@ -186,6 +188,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     snapshotEwf(quote);
     if(!quote.openings.length||quoteTotals(quote).unpriced)fail(400,'Add openings and price every opening before converting to an order.');
     for(const opening of quote.openings)if(productId(lineProduct(opening,quote))===EWF_ID){try{validateEwfOpening(opening,{complete:true});}catch(e){fail(400,opening.name+': '+e.message);}}
+    for(const opening of quote.openings)if(productId(lineProduct(opening,quote))===BROADLEAF_ID&&opening.broadleaf){try{validateBroadleafOpening(opening,{complete:true});}catch(e){fail(400,opening.name+': '+e.message);}}
     for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');
     const id=randomUUID();if(active(state.orders).length>=1000)fail(400,'Order capacity reached.');
     const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:nextOrderNumber(state),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId,true)),createdAt:time,updatedAt:time,version:1};

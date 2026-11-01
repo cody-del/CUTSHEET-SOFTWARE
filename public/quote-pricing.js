@@ -1,13 +1,16 @@
 import {lineProduct,productId} from './products.js';
 import {EWF_ID} from './elegant.js';
 import {ewfPrice} from './ewf-catalog.js';
+import {BROADLEAF_ID,broadleafTipSize} from './broadleaf.js';
 // Shared by the quote builder and the server so preview prices round identically.
 export function openingPrice(opening,quote){
   if(!Number.isFinite(opening.width)||opening.width<=0||!Number.isFinite(opening.height)||opening.height<=0){
     return {openingId:opening.id,area:0,billableArea:0,unitPrice:null,lineTotal:null,override:false};
   }
   const id=productId(lineProduct(opening,quote)),pricing=opening.pricing??(id===productId(quote)?quote.pricing:quote.productPricing?.[id]);
-  const area=opening.width*opening.height/144,billableArea=Math.max(area,(pricing?.minimumAreaHundredths||0)/100);
+  const tip=id===BROADLEAF_ID?broadleafTipSize(opening):{width:opening.width,height:opening.height,issues:[]};
+  if(!tip.width||!tip.height)return {openingId:opening.id,area:0,billableArea:0,unitPrice:null,lineTotal:null,override:false,issues:tip.issues};
+  const area=tip.width*tip.height/144,billableArea=Math.max(area,(pricing?.minimumAreaHundredths||0)/100);
   const override=quote.unitPrices?.[opening.id],rate=id===EWF_ID?null:pricing?.rateCents;
   const ewf=id===EWF_ID?ewfPrice(opening,quote,pricing,override):null;
   const unitPrice=ewf?ewf.unitPrice:override??(rate==null?null:Math.round(billableArea*rate));
