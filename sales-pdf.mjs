@@ -1,7 +1,8 @@
 import {orderFinancials} from './public/order-finance.js';
-import {productName,lineProduct,isManufacturingLine} from './public/products.js';
+import {productName,productId,lineProduct,isManufacturingLine} from './public/products.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {frameDescription,frameSetupLabel} from './public/frames.js';
+import {EWF_ID,ewfDetails,ewfMeasurement} from './public/elegant.js';
 const clean=value=>String(value??'').normalize('NFKD').replace(/[–—]/g,'-').replace(/×/g,'x').replace(/·/g,' / ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[^\x20-\x7e\n]/g,'');
 const money=cents=>cents==null?'Not priced':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(cents/100);
 const phone=value=>{const digits=String(value||'').replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'');return digits.length===10?`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`:value;};
@@ -87,14 +88,17 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
  y-=11;tableHeader();
  for(const [i,o]of q.openings.entries()){
   const priced=t.lines.find(l=>l.openingId===o.id),details=[];
-  details.push(productName(lineProduct(o,q)),`${o.width}" W x ${o.height}" H`);
+  details.push(productName(lineProduct(o,q)),`${productId(lineProduct(o,q))===EWF_ID?ewfMeasurement(o.width):o.width}" W x ${productId(lineProduct(o,q))===EWF_ID?ewfMeasurement(o.height):o.height}" H`);
   if(isManufacturingLine(o,q)){
    const config=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' / T / '):'L'.repeat(o.left)+'R'.repeat(o.right);
    const frameSides=['3W','3D'].includes(o.sides)?'3-sided frame':['4S','CW'].includes(o.sides)?'':frameSetupLabel(o);
    details.push([frameDescription(o),o.mount==='I'?'Inside mount':'Outside mount',frameSides].filter(Boolean).join(' / '));
    details.push([({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],o.louver+'" louvers',o.tilt==='Smart'?'Smart View':o.tilt+' tilt',config].filter(Boolean).join(' / '));
    if(o.divider)details.push('Divider rail: '+o.divider+'"');
-  }else if(o.notes)details.push(o.notes);
+  }else{
+   if(productId(lineProduct(o,q))===EWF_ID)details.push(...ewfDetails(o));
+   if(o.notes)details.push(o.notes);
+  }
   // Workshop-only notes and machining dimensions do not belong on a client order.
   const rows=[...wrap(o.name,302,10,bold).map(s=>[s,bold,10]),...details.flatMap(s=>wrap(s,302,9).map(r=>[r,font,9]))];
   let offset=0;

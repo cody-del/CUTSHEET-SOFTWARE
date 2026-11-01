@@ -285,7 +285,7 @@ test('mixed sold orders preserve every line but cut PDFs and shop jobs contain o
   assert.equal(order.openings.length,2);assert.equal(quoteTotals(order).total,174376);
   const manufacturing=orderJob(order);assert.equal(manufacturing.openings.length,1);assert.equal(manufacturing.openings[0].id,ss.id);assert.ok(!JSON.stringify(manufacturing).includes('pricing'));
   assert.equal((await f.run('dashboard')).pendingOrders[0].openingCount,1);
-  const summary=(await f.run('sales')).orders[0];assert.equal(summary.openingCount,2);assert.equal(summary.manufacturingOpeningCount,1);assert.match(summary.productNames,/Elegant Shutters.*ShutterSmart/);
+  const summary=(await f.run('sales')).orders[0];assert.equal(summary.openingCount,2);assert.equal(summary.manufacturingOpeningCount,1);assert.match(summary.productNames,/Elegant.*Broadleaf Shutters.*ShutterSmart/);
   const handler=shopHandler(f.service),request=(op,data)=>new Request('https://example.com/api/shop/'+op,{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify(data)});
   for(const [op,data]of [['sales-document',{kind:'quote',id:q.id}],['sales-document',{kind:'order',id:order.id}],['order-pdf',{id:order.id,units:'mm'}]]){
     const response=await handler(request(op,data));assert.equal(response.status,200);
@@ -564,4 +564,34 @@ test('autosaved blank line can still choose its product and receives that produc
  assert.equal(q.openings[0].productId,'elegant-shutters');assert.equal(q.openings[0].pricing.rateCents,4000);
  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{...q.openings[0],width:36,height:60}]}}));
  await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[{...q.openings[0],productId:'starwood'}]}}),/new line item/);
+});
+
+test('EWF selections persist through quotes, mixed orders and PDFs while only ShutterSmart reaches production',async t=>{
+ const {EWF_ID,defaultEwf}=await import('../public/elegant.js');
+ const ewf={id:'shade-1',productId:EWF_ID,name:'Dining room',width:51.875,height:36.58,quantity:2,notes:'Install above the trim.',ewf:{...defaultEwf('motorized'),colorName:'Linen',colorNumber:'LF-123',remote:'multi',wandLength:'4',wandColor:'black',usb10:true,wifi:'hub',windowLocation:'East'}};
+ const f=await fixture(t),q=await quote(f,{items:[opening,ewf]});
+ assert.equal((await f.run('sales-get',{kind:'quote',id:q.id})).totals.unpriced,1);
+ let saved=await f.run('quote-save',{id:q.id,version:q.version,fields:{unitPrices:{[ewf.id]:32944}}});
+ assert.deepEqual(saved.quote.openings[1].ewf,ewf.ewf);
+ const {order}=await f.run('quote-convert',{id:q.id,version:saved.quote.version});await confirmForProduction(f,order);
+ assert.deepEqual(order.openings[1].ewf,ewf.ewf);assert.equal(quoteTotals(order).lines[1].lineTotal,65888);
+ const persisted=createShopService({store:fileStore(f.path),password,secret});
+ assert.deepEqual((await persisted.run('sales-get',{kind:'order',id:order.id},f.owner)).record.openings[1].ewf,ewf.ewf);
+ const job=(await f.run('job-get',{id:order.id})).job;assert.deepEqual(job.openings.map(o=>o.input.id),[opening.id]);
+ const handler=shopHandler(f.service);
+ const res=await handler(new Request('https://example.com/api/shop/sales-document',{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify({id:order.id,kind:'order'})}));
+ assert.equal(res.status,200);const pdf=await PDFDocument.load(await res.arrayBuffer()),content=pdfText(pdf);
+ for(const value of ['EWF Shades','LF-123','Multi channel','Wi-Fi hub','Window location: East','Install above the trim.'])assert.ok(content.includes(value),value);
+ assert.ok(!content.includes('Asia'));assert.ok(!content.includes('Regular cord'));
+});
+
+test('EWF server rejects out-of-range widths and incomplete order options; shade-only orders stay out of production',async t=>{
+ const {EWF_ID,defaultEwf}=await import('../public/elegant.js');
+ const f=await fixture(t);await assert.rejects(f.run('pricing-save',{productId:EWF_ID,version:0,rateCents:4000,minimumAreaHundredths:0}),/unit price on each EWF/);const ewf={id:'shade-1',productId:EWF_ID,name:'Shade',width:36,height:60,quantity:1,notes:'',ewf:defaultEwf()},q=await quote(f,{items:[ewf]});
+ for(const item of [{...ewf,width:7},{...ewf,width:20,ewf:defaultEwf('motorized')},{...ewf,height:145}])await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[item]}}),/must be between/);
+ let {quote:saved}=await f.run('quote-save',{id:q.id,version:q.version,fields:{unitPrices:{[ewf.id]:20000}}});
+ await assert.rejects(f.run('quote-convert',{id:q.id,version:saved.version}),/fabric color/);
+ ({quote:saved}=await f.run('quote-save',{id:q.id,version:saved.version,fields:{openings:[{...ewf,ewf:{...ewf.ewf,colorNumber:'LF-100'}}]}}));
+ const {order}=await f.run('quote-convert',{id:q.id,version:saved.version});await confirmForProduction(f,order);
+ assert.equal((await f.run('jobs')).jobs.length,0);await assert.rejects(f.run('order-release',{id:order.id,version:order.version}),/only for ShutterSmart/);
 });

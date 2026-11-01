@@ -2,7 +2,8 @@
 // Explicit unknown products never inherit manufacturing capabilities.
 export const PRODUCTS=Object.freeze([
   Object.freeze({id:'shuttersmart',name:'ShutterSmart',cutSheets:true}),
-  Object.freeze({id:'elegant-shutters',name:'Elegant Shutters',cutSheets:false}),
+  Object.freeze({id:'elegant-shutters',name:'Elegant · Broadleaf Shutters',cutSheets:false}),
+  Object.freeze({id:'elegant-ewf-shades',name:'Elegant · EWF Shades',cutSheets:false}),
   Object.freeze({id:'starwood',name:'Starwood',cutSheets:false}),
   Object.freeze({id:'other',name:'Other brand',cutSheets:false})
 ]);

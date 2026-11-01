@@ -3,6 +3,7 @@ import {orderFinancials,salesFinancials} from './public/order-finance.js';
 import {orderReadiness,orderManufacturingOpenings} from './order-manufacturing.mjs';
 import {quotePricing} from './public/quote-pricing.js';
 import {PRODUCTS,productId,productFor,productName,lineProduct,isManufacturingLine,manufacturingOpenings,hasManufacturingLines,quoteProductNames,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
+import {EWF_ID,validateEwfOpening} from './public/elegant.js';
 import {randomUUID} from 'node:crypto';
 import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {production} from './public/shop-state.js';
@@ -68,6 +69,7 @@ function openings(value,record,pricingFor,allowIncomplete=false){
     else{
       for(const key of ['width','height'])if(!(allowIncomplete&&o[key]==null)&&(typeof o[key]!=='number'||!Number.isFinite(o[key])||o[key]<=0||o[key]>10000))fail(400,'Enter dimensions greater than zero and no larger than 10,000 inches.');
       if(!Number.isInteger(o.quantity)||o.quantity<1||o.quantity>100)fail(400,'Quantity must be a whole number between 1 and 100.');
+      if(productId(identity)===EWF_ID){try{o.ewf=validateEwfOpening({...o,ewf:raw.ewf});}catch(e){fail(400,o.name+': '+e.message);}}
     }
     return o;
   });
@@ -106,7 +108,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     state.companyProfile={...fields,version:previous.version+1,updatedAt:time};return {company:state.companyProfile};
   }
   if(operation==='pricing-save'){
-    const product=requireProduct(data),previous=pricingFor(data);if(product.id==='other')fail(400,'Set a unit price on each line for other brands.');current(previous,data.version);
+    const product=requireProduct(data),previous=pricingFor(data);if(product.id===EWF_ID)fail(400,'Enter a unit price on each EWF shade until catalog pricing is available.');if(product.id==='other')fail(400,'Set a unit price on each line for other brands.');current(previous,data.version);
     const rateCents=amount(data.rateCents,'price per square foot',1000000);if(!rateCents)fail(400,'Enter a price greater than zero.');
     const pricing={rateCents,minimumAreaHundredths:amount(data.minimumAreaHundredths,'minimum square footage',100000),version:previous.version+1,updatedAt:time};
     if(supportsCutSheets(data))state.pricing=pricing;else state.productPricing[product.id]=pricing;
@@ -179,6 +181,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     if(quote.orderId)return {order:get(state.orders,quote.orderId)};
     current(quote,data.version);
     if(!quote.openings.length||quoteTotals(quote).unpriced)fail(400,'Add openings and price every opening before converting to an order.');
+    for(const opening of quote.openings)if(productId(lineProduct(opening,quote))===EWF_ID){try{validateEwfOpening(opening,{complete:true});}catch(e){fail(400,opening.name+': '+e.message);}}
     for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');
     const id=randomUUID();if(active(state.orders).length>=1000)fail(400,'Order capacity reached.');
     const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:nextOrderNumber(state),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId,true)),createdAt:time,updatedAt:time,version:1};

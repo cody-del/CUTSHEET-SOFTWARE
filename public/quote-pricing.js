@@ -1,4 +1,5 @@
 import {lineProduct,productId} from './products.js';
+import {EWF_ID} from './elegant.js';
 // Shared by the quote builder and the server so preview prices round identically.
 export function openingPrice(opening,quote){
   if(!Number.isFinite(opening.width)||opening.width<=0||!Number.isFinite(opening.height)||opening.height<=0){
@@ -6,7 +7,7 @@ export function openingPrice(opening,quote){
   }
   const id=productId(lineProduct(opening,quote)),pricing=opening.pricing??(id===productId(quote)?quote.pricing:quote.productPricing?.[id]);
   const area=opening.width*opening.height/144,billableArea=Math.max(area,(pricing?.minimumAreaHundredths||0)/100);
-  const override=quote.unitPrices?.[opening.id],rate=pricing?.rateCents;
+  const override=quote.unitPrices?.[opening.id],rate=id===EWF_ID?null:pricing?.rateCents;
   const unitPrice=override??(rate==null?null:Math.round(billableArea*rate));
   return {openingId:opening.id,area,billableArea,unitPrice,lineTotal:unitPrice===null?null:unitPrice*opening.quantity,override:override!=null};
 }

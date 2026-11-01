@@ -1,4 +1,5 @@
 import {lineProduct,productId,PRODUCTS} from './products.js';
+import {EWF_ID,nextEwf} from './elegant.js';
 
 // Repeat product choices, never an opening's measurements or custom price.
 export function nextQuoteLine(previous,quote,defaults,productPricing={}){
@@ -17,5 +18,6 @@ export function nextQuoteLine(previous,quote,defaults,productPricing={}){
     if(previous.tposts)line.tposts={construction:previous.tposts.construction,sections:structuredClone(previous.tposts.sections),positions:previous.tposts.positions.map(()=>null)};
   }
   line.pricing=structuredClone(productPricing[product]??{rateCents:null,minimumAreaHundredths:0,version:0});
+  if(product===EWF_ID)line.ewf=nextEwf(previous.ewf);
   return line;
 }
