@@ -70,15 +70,14 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
  // Customer details flow across the page; long fields wrap without losing content.
  let cx=36;
  for(const [value,size,f]of customer){
-  const words=clean(value).trim().split(/\s+/),fieldWidth=f.widthOfTextAtSize(words.join(' '),size);
+  const field=clean(value).trim().replace(/\s+/g,' '),fieldWidth=f.widthOfTextAtSize(field,size);
   if(cx>36){
-   if(cx+18+fieldWidth>576&&fieldWidth<=540){y-=14;cx=36;}
+   if(cx+18+fieldWidth>576){y-=14;cx=36;}
    else{text('|',cx+7,y,9,font,gray);cx+=18;}
   }
-  for(const word of words)for(const piece of wrap(word,540,size,f)){
-   const tokenWidth=f.widthOfTextAtSize(piece,size);
-   if(cx+tokenWidth>576){y-=14;cx=36;}
-   ensure(14);text(piece,cx,y,size,f,f===bold?ink:gray);cx+=tokenWidth+f.widthOfTextAtSize(' ',size);
+  for(const [i,row]of wrap(field,540,size,f).entries()){
+   if(i){y-=14;cx=36;}
+   ensure(14);text(row,cx,y,size,f,f===bold?ink:gray);cx+=f.widthOfTextAtSize(row,size);
   }
  }
  y-=18;

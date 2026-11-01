@@ -541,7 +541,7 @@ test('order PDFs use saved company details, agreed totals and payments; all line
  assert.equal(response.status,200);
  const pdf=await PDFDocument.load(await response.arrayBuffer()),content=pdfText(pdf);
  assert.ok(pdf.getPageCount()>2);assert.equal(pdf.getAuthor(),companyFields.name);
- for(const value of ['Sample Shutters','123 Sample Avenue','555-0100','Room 1','Room 12','Terms and conditions','Sample clause 50.','Order adjustment','Order total','$9,000.00','Payments received','$1,000.00','Balance due','$8,000.00'])assert.ok(content.includes(value),value);
+ for(const value of ['Sample Shutters','123 Sample Avenue','Alex Rivera','123 Example Lane, Naples, FL','555-0100','Room 1','Room 12','Terms and conditions','Sample clause 50.','Order adjustment','Order total','$9,000.00','Payments received','$1,000.00','Balance due','$8,000.00'])assert.ok(content.includes(value),value);
  for(const value of ['Forged','PRIVATE:','Keep panels labeled.'])assert.ok(!content.includes(value),value);
  assert.ok(pdf.getPage(0).node.Resources().lookupMaybe(PDFName.of('XObject'),PDFDict)?.keys().length>0);
 });
