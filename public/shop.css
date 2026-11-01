@@ -95,3 +95,5 @@
 .production-check.is-partial .production-check-actions [aria-pressed=true]{background:#65480d;color:#fff;border-color:#65480d}
 
 .shop-sync-time{font-size:.875rem;color:#656565;margin:0 0 18px}.shop-sync-warning{padding:16px 20px;margin:0 0 20px;background:#fff5ce;border:1px solid #dcc573;border-radius:6px}.shop-sync-warning p{margin:6px 0 12px}.shop-device small{display:block;color:#666;margin-top:5px}
+
+.shop-code-settings p{margin-top:14px;line-height:1.6;max-width:640px}#shop-code-form .field+.field{margin-top:18px}
