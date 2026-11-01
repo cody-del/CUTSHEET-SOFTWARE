@@ -114,3 +114,11 @@
 .broadleaf-price span{color:var(--muted);font-size:14px;margin-bottom:8px}
 .broadleaf-price strong{font-size:18px}
 @media(max-width:700px){.broadleaf-editor .field{display:flex;flex-direction:column;gap:8px}.broadleaf-editor .field>label{padding-top:0}.broadleaf-editor .field>div{width:100%}.broadleaf-price{grid-template-columns:1fr;gap:14px}}
+
+.broadleaf-measurement{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:10px}
+.broadleaf-measurement>.input-suffix:only-child{grid-column:1/-1}
+.broadleaf-measurement input,.broadleaf-measurement select{width:100%;min-width:0}
+.settings-workspace-notice{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 24px;margin-bottom:28px;border:1px solid var(--border);border-radius:8px;background:#f5f5f5}
+.settings-workspace-notice p{margin:6px 0 0;color:var(--muted)}
+.settings-workspace-notice .btn{flex-shrink:0}
+@media(max-width:700px){.settings-workspace-notice{align-items:flex-start;flex-direction:column;gap:16px}}

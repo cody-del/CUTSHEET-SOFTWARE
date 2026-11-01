@@ -1,3 +1,4 @@
+import {BROADLEAF_FRACTIONS,broadleafMeasurementParts,combineBroadleafMeasurement} from '../public/broadleaf-measurements.js';
 import {PDFDocument,decodePDFRawStream} from 'pdf-lib';
 import {createSalesPDF} from '../sales-pdf.mjs';
 import {quotePricing} from '../public/quote-pricing.js';
@@ -102,11 +103,11 @@ test('Broadleaf options survive storage, rate snapshots and order conversion wit
  await run('contact-save',{id:'contact',version:0,fields:{firstName:'Demo',lastName:'Customer',address:'',phone:'',email:'',notes:''}});
  await run('pricing-save',{productId:BROADLEAF_ID,version:0,rateCents:2500,minimumAreaHundredths:0});
  let {quote}=await run('quote-create',{id:'quote',contactId:'contact',productId:BROADLEAF_ID});
- const opening=item({reference:'WS',postCount:1,postLocations:[10],sections:['LR','LR']});opening.pricing={rateCents:1};
+ const opening=item({reference:'WS',postCount:1,postLocations:[10.9375],sections:['LR','LR']},{width:21.0625,height:57.9375});opening.pricing={rateCents:1};
  ({quote}=await run('quote-save',{id:quote.id,version:quote.version,fields:{openings:[opening]}}));
  assert.equal(quote.openings[0].pricing.rateCents,2500);assert.deepEqual(quote.openings[0].broadleaf,opening.broadleaf);
  await run('pricing-save',{productId:BROADLEAF_ID,version:1,rateCents:9999,minimumAreaHundredths:0});
- const saved=await run('sales-get',{kind:'quote',id:quote.id});assert.equal(saved.totals.total,50000);
+ const saved=await run('sales-get',{kind:'quote',id:quote.id});assert.equal(saved.record.openings[0].width,21.0625);assert.equal(saved.record.openings[0].height,57.9375);assert.equal(saved.totals.total,50914);
  const {order}=await run('quote-convert',{id:quote.id,version:quote.version});assert.deepEqual(order.openings,quote.openings);
  assert.equal((await run('dashboard')).jobs.length,0);
  await assert.rejects(run('order-release',{id:order.id,version:order.version}),/only for ShutterSmart/);
@@ -123,3 +124,18 @@ test('Broadleaf proposal PDF preserves fraction sizes, frame codes and every T-p
  for(const expected of ['4 1/2-inch louvers','SL10','T-post 4: 96 in from left','Section 5: 2 panels - LR','120 in W x 72 in H'])assert.ok(text.includes(expected),expected);
  assert.ok(!text.includes('412-inch'));
 });
+
+ test('Broadleaf sixteenth picker preserves every fraction and keeps existing decimals and metric values exact',()=>{
+ assert.deepEqual(BROADLEAF_FRACTIONS,['','1/16','1/8','3/16','1/4','5/16','3/8','7/16','1/2','9/16','5/8','11/16','3/4','13/16','7/8','15/16']);
+ for(let fraction=0;fraction<16;fraction++){
+  const expected=51+fraction/16,parts=broadleafMeasurementParts(expected);
+  assert.deepEqual(parts,{whole:'51',fraction});assert.equal(combineBroadleafMeasurement(parts.whole,parts.fraction),expected);
+ }
+ assert.deepEqual(broadleafMeasurementParts(36.58),{whole:'36.58',fraction:0});
+ assert.equal(combineBroadleafMeasurement('51.875',7),51.875);
+ assert.equal(combineBroadleafMeasurement('51 15/16',7),51.9375);
+ assert.equal(combineBroadleafMeasurement('',1),.0625);
+ assert.equal(combineBroadleafMeasurement('',0),null);
+ assert.equal(broadleafMeasurementParts(625/25.4,'mm').whole,'625');
+ assert.throws(()=>combineBroadleafMeasurement('invalid',1));
+ });

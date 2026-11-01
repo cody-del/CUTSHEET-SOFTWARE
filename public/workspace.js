@@ -46,11 +46,11 @@ function settings(){
  const prefs=browserData();
  if(!companyDirty)companyDraft={...data.company,logo:data.company.version?data.company.logo:loadLogo()};
  const logo=companyDraft.logo;
- return heading()+`<section class="display-settings" aria-label="Display settings">
+ return heading()+`${session.local?'<aside class="settings-workspace-notice"><div><strong>Demo workspace</strong><p>These settings and prices belong to this preview. Your saved 5-Day company details are in the live app.</p></div><a class="btn" href="https://app.fivedayplantationshutters.com/settings.html" target="_blank" rel="noopener">Open live Settings</a></aside>':''}<section class="display-settings" aria-label="Display settings">
   <div><h2>Display</h2><p>Screen text · saves automatically on this device.</p></div>
   <fieldset class="text-size-options"><legend>Text size</legend><div>${textSizeOptions.map(option=>`<label><input type="radio" name="text-size" value="${option.value}" ${getTextSize()===option.value?'checked':''}><span>${option.label}</span></label>`).join('')}</div></fieldset>
  </section><section class="settings-section company-settings">
-  <h2>Company details</h2><p>Used on order PDFs and proposals.</p>
+  <h2>Company details</h2><p>${session.local?'Saved only in this demo workspace.':'Saved to your company account and shared across signed-in devices.'} Used on order PDFs and proposals.</p>
   <form id="company-form">
    <div class="company-logo-field">
     ${logo?`<img class="logo-preview" src="${h(logo.data)}" alt="Company logo">`:''}
@@ -66,7 +66,7 @@ function settings(){
     <div class="field wide"><label for="company-terms">Terms and conditions</label><textarea id="company-terms" data-company="terms" rows="6" maxlength="12000">${h(companyDraft.terms)}</textarea><span class="field-help">Printed as entered on orders and proposals.</span></div>
    </div>
    <p class="field-error" id="company-error" role="alert"></p>
-   <div class="settings-actions"><button class="btn primary" id="save-company" ${busy?'disabled':''}>Save company details</button><span class="company-save-status" role="status">${companyDirty?'Unsaved changes':''}</span></div>
+   <div class="settings-actions"><button class="btn primary" id="save-company" ${busy?'disabled':''}>Save company details</button><span class="company-save-status" role="status">${companyDirty?'Unsaved changes':data.company.version?(session.local?'Saved in this demo':'Saved to company account'):'Not saved yet'}</span></div>
   </form>
  </section><div class="workspace-settings">
   <section class="settings-section">
@@ -87,7 +87,7 @@ function settings(){
   </section>
  </div>
  <section class="settings-section">
-  <h2>Company backup</h2><p>Download customers, quotes, orders, cut sheets, production progress and company settings. Keep this file in a private, backed-up folder.</p>
+  <h2>Company backup</h2><p>Download customers, quotes, orders, cut sheets, production progress, saved pricing and company settings. Keep this file in a private, backed-up folder.</p>
   <div class="settings-actions"><button class="btn" id="company-backup">Download company backup</button></div>
   <p class="field-help">Passwords and shop-device connections are not included. This is a manual backup.</p>
  </section>
@@ -143,7 +143,7 @@ async function saveCompany(){
   const result=await shopRequest('company-save',{version:data.company.version,fields:companyDraft});
   data=result;companyDirty=false;companyDraft=null;
   try{saveLogo(result.company.logo);}catch{}
-  render();notify('Company details saved.');
+  render();notify(session.local?'Company details saved in this demo.':'Company details saved to your company account.');
  }finally{busy=false;if($('#save-company'))$('#save-company').disabled=false;}
 }
 function bind(){
