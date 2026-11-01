@@ -79,15 +79,16 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     }
     if(isCombined)text('OPENINGS',x+c.refs,yy-12,7,bold,white);
   }
-  function rowData(p,w,small,isCombined=false,scale=1){
-    const c=tableColumns(w,small,isCombined),title=p.name.replace(' · ',' ')+(p.section?`  S${p.section}`:''),nameSize=(small?8:9)*scale,profileSize=7*scale,valueSize=(small?9:10)*scale;
+  function rowData(p,w,small,isCombined=false,scale=1,compact=false){
+    const c=tableColumns(w,small,isCombined),title=p.name.replace(' · ',' ')+(p.section?` - Section ${p.section}`:''),nameSize=(small?8:9)*scale,profileSize=7*scale,valueSize=(small?9:10)*scale;
     const holeBox=p.name.startsWith('Stile')?{width:small?w-14:Math.min(c.name,106),height:small?22:36,horizontal:small,stacked:small||isCombined,value:Number.isFinite(p.wholeDistance)?length(p.wholeDistance)+' '+units:'Not available'}:null;
     const nameWidth=holeBox&&!holeBox.stacked?c.name-holeBox.width-10:c.name;
-    const inlineProfile=small&&!holeBox&&bold.widthOfTextAtSize(ascii(title),nameSize)+8+regular.widthOfTextAtSize(ascii(p.profile),profileSize)<=nameWidth;
+    const inlineProfile=(small||compact)&&!holeBox&&bold.widthOfTextAtSize(ascii(title),nameSize)+8+regular.widthOfTextAtSize(ascii(p.profile),profileSize)<=nameWidth;
     const name=wrap(title,nameWidth,nameSize,bold),profile=inlineProfile?[]:wrap(p.profile,nameWidth,profileSize);
     const refs=isCombined?wrap(p.openings.map(o=>`${o.name} (${o.quantity})`).join(', '),c.refsWidth,7):[];
-    const labelHeight=(small?3:5)+name.length*(nameSize+1)+profile.length*(profileSize+1);
-    const contentHeight=Math.max(small?inlineProfile?18:20:22,holeBox?.stacked?labelHeight+holeBox.height+7:Math.max(labelHeight,(holeBox?.height||0)+6));
+    const labelHeight=(small&&compact?2:small||compact?3:5)+name.length*(nameSize+1)+profile.length*(profileSize+1);
+    const minimumHeight=small&&compact?(inlineProfile?16:19):small||compact?(inlineProfile?18:20):22;
+    const contentHeight=Math.max(minimumHeight,holeBox?.stacked?labelHeight+holeBox.height+7:Math.max(labelHeight,(holeBox?.height||0)+6));
     const baseHeight=Math.max(contentHeight,refs.length*9+7);
     return {p,name,profile,refs,nameSize,profileSize,valueSize,inlineProfile,holeBox,contentHeight,baseHeight,height:baseHeight};
   }
@@ -110,23 +111,30 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     if(isCombined)refs.forEach((l,i)=>text(l,x+c.refs,top-11-i*9,7));
   }
   function partTables(parts,isCombined=false,maxHeight=0){
-    // Longer section lists use two readable columns instead of a mostly empty second page.
+    // Prefer the standard full-width reading order. Put profiles beside names
+    // before resorting to two columns for unusually long section lists.
     const gap=12;
-    function layout(columns,scale=1){
-      const w=(width-gap*(columns-1))/columns,small=columns===2,rows=parts.map(p=>rowData(p,w,small,isCombined,scale));
+    function layout(columns,scale=1,compact=false){
+      const w=(width-gap*(columns-1))/columns,small=columns===2,rows=parts.map(p=>rowData(p,w,small,isCombined,scale,compact));
       let groups=[rows];
       if(columns===2){
         const total=rows.reduce((sum,row)=>sum+row.height,0);let before=0,best=Infinity,split=1;
-        for(let i=1;i<rows.length;i++){before+=rows[i-1].height;const tallest=Math.max(before,total-before);if(tallest<best){best=tallest;split=i;}}
+        for(let i=1;i<rows.length;i++){
+          before+=rows[i-1].height;
+          // Keep a section's louvers and rails together when two columns are needed.
+          if(rows[i-1].p.section&&rows[i-1].p.section===rows[i].p.section)continue;
+          const tallest=Math.max(before,total-before);if(tallest<best){best=tallest;split=i;}
+        }
         groups=[rows.slice(0,split),rows.slice(split)];
       }
-      return {columns,w,small,groups,height:19+Math.max(...groups.map(group=>group.reduce((sum,row)=>sum+row.height,0)))+12};
+      return {columns,w,small,compact,groups,height:19+Math.max(...groups.map(group=>group.reduce((sum,row)=>sum+row.height,0)))+12};
     }
-    let plan=layout(!isCombined&&parts.length>16?2:1);
+    let plan=layout(1);
     if(!isCombined&&maxHeight>0){
-      if(plan.columns===1&&plan.height>maxHeight&&parts.length>10){const compact=layout(2);if(compact.height<=maxHeight)plan=compact;}
+      if(plan.height>maxHeight){const compact=layout(1,1,true);if(compact.height<=maxHeight)plan=compact;else if(parts.length>10)plan=layout(2);}
+      if(plan.columns===2&&plan.height>maxHeight)plan=layout(2,1,true);
       // Enlarge only after reserving the actual machining, notes and bottom checklist.
-      for(const scale of [1.2,1.1]){const larger=layout(plan.columns,scale);if(larger.height<=maxHeight){plan=larger;break;}}
+      for(const scale of [1.2,1.1]){const larger=layout(plan.columns,scale,plan.compact);if(larger.height<=maxHeight){plan=larger;break;}}
       const extra=Math.max(0,maxHeight-plan.height),count=Math.max(...plan.groups.map(group=>group.length));
       for(const group of plan.groups)for(const data of group)data.height+=extra/count;
     }
@@ -199,7 +207,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
       {w:350,compact:true,dense:result.parts.length>12});
     schematic(o,result,397,top,183,Math.min(130,top-y-15));
     y-=5;
-    if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}`);
+    if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}. Sections numbered left to right.`);
     if(o.divider)paragraph(`${o.divisionMode==='split'?'Split':'Divider'} input from bottom: ${length(o.divider*25.4)} ${units}.`);
     const machining=[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')],...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
     const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12},notes=cutSheetNotes(result);

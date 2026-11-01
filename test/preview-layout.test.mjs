@@ -1,13 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PDFDocument} from 'pdf-lib';
+import {PDFDocument,decodePDFRawStream} from 'pdf-lib';
 import {calculate} from '../calculations.mjs';
-import {createPDF} from '../pdf.mjs';
+import {createPDF,formatPrintLength} from '../pdf.mjs';
 import {drawing} from '../public/layouts.js';
 import {printedReferences} from './printed-reference-cases.mjs';
 
 const example={...printedReferences[1].opening,name:'Opening 1',width:71,height:63.375,frame:'ZF',sides:'3W',sizeMethod:'W',divider:25};
 const large={...printedReferences[2].opening,width:150,height:76.25,divider:30,tposts:{construction:'two-piece',positions:[28,57,89,120],sections:Array.from({length:5},()=>({left:1,right:1}))}};
+
+function pageTextRuns(pdf,page){
+  const stream=page.node.Contents().asArray().map(ref=>Buffer.from(decodePDFRawStream(pdf.context.lookup(ref)).decode()).toString()).join('\n');
+  return [...stream.matchAll(/BT\n([\s\S]*?)\nET/g)].map(([,block])=>{
+    const position=block.match(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/),value=block.match(/<([\da-f]+)> Tj/i);
+    return {x:Number(position[1]),y:Number(position[2]),text:Buffer.from(value[1],'hex').toString('latin1')};
+  });
+}
+
+test('a two-section T-post prints in the standard full-width reading order, with every cut beside its quantity',async()=>{
+  const opening={...printedReferences[2].opening,name:'T-post opening',width:72.5,height:59.125,sides:'4S',divider:0,
+    notes:'Width kept exact. Height reduced to meet the light-gap requirement. Post centerline measured from the left. Trim on top and sides, Standard bottom. Keep these panels together for installation and check the room label before assembly.',
+    tposts:{construction:'two-piece',positions:[36.5],sections:[{left:1,right:0},{left:0,right:1}]}};
+  const result=calculate(opening);
+  for(const units of ['mm','in']){
+    const pdf=await PDFDocument.load(await createPDF({number:'PRINT-LAYOUT',openings:[opening]},{units}));
+    assert.equal(pdf.getPageCount(),1);
+    const runs=pageTextRuns(pdf,pdf.getPage(0));
+    assert.equal(runs.filter(r=>r.text==='PART / PROFILE').length,1,'one full-width parts table');
+    const qty=runs.find(r=>r.text==='QTY'),cut=runs.find(r=>r.text===`SIZE (${units})`),end=runs.find(r=>r.text===`MACHINING (${units})`);
+    const names=result.parts.map(p=>runs.find(r=>r.text===p.name.replace(' · ',' ')+(p.section?` - Section ${p.section}`:'')));
+    assert.ok(names.every(Boolean),'every part is printed with an explicit section where needed');
+    result.parts.forEach((p,i)=>{
+      const name=names[i],bottom=names[i+1]?.y??end.y;
+      assert.equal(name.x,names[0].x,'all rows read down the same column');
+      assert.ok(name.y>bottom,'part order stays unchanged');
+      for(const [header,value]of [[qty,String(p.quantity)],[cut,formatPrintLength(p.length,units)]]){
+        assert.ok(runs.some(r=>r.x===header.x&&r.y<=name.y+1&&r.y>bottom&&r.text===value),`${name.text}: ${header.text} ${value}`);
+      }
+      assert.ok(runs.some(r=>r.text===p.profile&&r.y<=name.y+1&&r.y>bottom),`${name.text}: profile retained`);
+    });
+    assert.equal(runs.filter(r=>r.text==='WHOLE DISTANCE').length,result.parts.filter(p=>p.name.startsWith('Stile')).length);
+    assert.ok(runs.some(r=>r.text==='Hinged / complete'));
+  }
+});
 
 test('the divider example renders nine louvers above and six below, inside the stiles',()=>{
   const result=calculate(example),scene=drawing(example,{louverLayout:result.louverLayout});
