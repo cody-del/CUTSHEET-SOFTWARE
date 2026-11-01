@@ -574,7 +574,7 @@ test('EWF selections persist through quotes, mixed orders and PDFs while only Sh
  let saved=await f.run('quote-save',{id:q.id,version:q.version,fields:{unitPrices:{[ewf.id]:32944}}});
  assert.deepEqual(saved.quote.openings[1].ewf,ewf.ewf);
  const {order}=await f.run('quote-convert',{id:q.id,version:saved.quote.version});await confirmForProduction(f,order);
- assert.deepEqual(order.openings[1].ewf,ewf.ewf);assert.equal(quoteTotals(order).lines[1].lineTotal,65888);
+ assert.deepEqual(order.openings[1].ewf,ewf.ewf);assert.equal(quoteTotals(order).lines[1].lineTotal,74888);
  const persisted=createShopService({store:fileStore(f.path),password,secret});
  assert.deepEqual((await persisted.run('sales-get',{kind:'order',id:order.id},f.owner)).record.openings[1].ewf,ewf.ewf);
  const job=(await f.run('job-get',{id:order.id})).job;assert.deepEqual(job.openings.map(o=>o.input.id),[opening.id]);
@@ -587,11 +587,35 @@ test('EWF selections persist through quotes, mixed orders and PDFs while only Sh
 
 test('EWF server rejects out-of-range widths and incomplete order options; shade-only orders stay out of production',async t=>{
  const {EWF_ID,defaultEwf}=await import('../public/elegant.js');
- const f=await fixture(t);await assert.rejects(f.run('pricing-save',{productId:EWF_ID,version:0,rateCents:4000,minimumAreaHundredths:0}),/unit price on each EWF/);const ewf={id:'shade-1',productId:EWF_ID,name:'Shade',width:36,height:60,quantity:1,notes:'',ewf:defaultEwf()},q=await quote(f,{items:[ewf]});
+ const f=await fixture(t);await assert.rejects(f.run('pricing-save',{productId:EWF_ID,version:0,rateCents:4000,minimumAreaHundredths:0}),/EWF uses binder pricing/);const ewf={id:'shade-1',productId:EWF_ID,name:'Shade',width:36,height:60,quantity:1,notes:'',ewf:defaultEwf()},q=await quote(f,{items:[ewf]});
  for(const item of [{...ewf,width:7},{...ewf,width:20,ewf:defaultEwf('motorized')},{...ewf,height:145}])await assert.rejects(f.run('quote-save',{id:q.id,version:q.version,fields:{openings:[item]}}),/must be between/);
  let {quote:saved}=await f.run('quote-save',{id:q.id,version:q.version,fields:{unitPrices:{[ewf.id]:20000}}});
  await assert.rejects(f.run('quote-convert',{id:q.id,version:saved.version}),/fabric color/);
  ({quote:saved}=await f.run('quote-save',{id:q.id,version:saved.version,fields:{openings:[{...ewf,ewf:{...ewf.ewf,colorNumber:'LF-100'}}]}}));
  const {order}=await f.run('quote-convert',{id:q.id,version:saved.version});await confirmForProduction(f,order);
  assert.equal((await f.run('jobs')).jobs.length,0);await assert.rejects(f.run('order-release',{id:order.id,version:order.version}),/only for ShutterSmart/);
+});
+
+test('EWF catalog totals survive save, reprice, order conversion and PDFs without itemizing the per-shade charge',async t=>{
+ const {defaultEwf}=await import('../public/elegant.js');
+ const {EWF_PRICING}=await import('../public/ewf-catalog.js');
+ const f=await fixture(t),item={id:'catalog-shade',productId:'elegant-ewf-shades',name:'Bedroom',width:36,height:60,quantity:2,notes:'',pricing:{catalogVersion:EWF_PRICING.catalogVersion,tariffCents:0},ewf:{...defaultEwf(),fabricCode:'R05001'}};
+ let q=await quote(f,{items:[item]});
+ assert.equal(q.openings[0].pricing.tariffCents,4500);
+ assert.equal(quoteTotals(q).subtotal,58600);
+ for(let i=0;i<2;i++){
+  ({quote:q}=await f.run('quote-save',{id:q.id,version:q.version,fields:{useCurrentPricing:true,openings:q.openings}}));
+  assert.equal(quoteTotals(q).subtotal,58600);
+ }
+ const {order}=await f.run('quote-convert',{id:q.id,version:q.version});
+ assert.equal(quoteTotals(order).subtotal,58600);
+ const handler=shopHandler(f.service);
+ const res=await handler(new Request('https://example.com/api/shop/sales-document',{method:'POST',headers:{'content-type':'application/json',cookie:'cutsheet_owner='+f.owner.owner},body:JSON.stringify({id:order.id,kind:'order'})}));
+ assert.equal(res.status,200);
+ const pdf=await PDFDocument.load(await res.arrayBuffer()),content=pdfText(pdf);
+ assert.equal(pdf.getPageCount(),1);
+ for(const value of ['R05001','$293.00','$586.00'])assert.ok(content.includes(value),value);
+ for(const value of ['Tariff','tariff','Surcharge','surcharge','$45.00','$90.00'])assert.ok(!content.includes(value),value);
+ const restarted=createShopService({store:fileStore(f.path),password,secret});
+ assert.equal((await restarted.run('sales-get',{kind:'order',id:order.id},f.owner)).totals.total,58600);
 });

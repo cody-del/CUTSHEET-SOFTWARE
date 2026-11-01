@@ -4,6 +4,7 @@ import {orderReadiness,orderManufacturingOpenings} from './order-manufacturing.m
 import {quotePricing} from './public/quote-pricing.js';
 import {PRODUCTS,productId,productFor,productName,lineProduct,isManufacturingLine,manufacturingOpenings,hasManufacturingLines,quoteProductNames,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {EWF_ID,validateEwfOpening} from './public/elegant.js';
+import {EWF_PRICING} from './public/ewf-catalog.js';
 import {randomUUID} from 'node:crypto';
 import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {production} from './public/shop-state.js';
@@ -78,7 +79,8 @@ const summary=q=>({id:q.id,productId:productId(q),productLabel:q.productLabel,pr
 export async function runSales(state,operation,data,time,publish,actorName='Owner'){
   state.contacts??={};state.quotes??={};state.orders??={};state.salesCounters??={quote:0,order:0};state.pricing??={rateCents:null,minimumAreaHundredths:0,version:0};
   state.productPricing??={};
-  const pricingFor=record=>productId(record)==='other'?{rateCents:null,minimumAreaHundredths:0,version:0}:supportsCutSheets(record)?state.pricing:state.productPricing[requireProduct(record).id]||{rateCents:null,minimumAreaHundredths:0,version:0};
+  const pricingFor=record=>productId(record)===EWF_ID?EWF_PRICING:productId(record)==='other'?{rateCents:null,minimumAreaHundredths:0,version:0}:supportsCutSheets(record)?state.pricing:state.productPricing[requireProduct(record).id]||{rateCents:null,minimumAreaHundredths:0,version:0};
+  const snapshotEwf=quote=>{for(const o of quote.openings)if(productId(lineProduct(o,quote))===EWF_ID&&!o.pricing?.catalogVersion)o.pricing=structuredClone(EWF_PRICING);};
   const touch=r=>{r.version++;r.updatedAt=time;return r;};
   const active=collection=>Object.values(collection).filter(r=>!r.deletedAt);
   const recordSummary=q=>({...summary(q),customerName:contactName(q.customer||state.contacts[q.contactId]||{}),orderDeleted:!!state.orders[q.orderId]?.deletedAt});
@@ -108,7 +110,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     state.companyProfile={...fields,version:previous.version+1,updatedAt:time};return {company:state.companyProfile};
   }
   if(operation==='pricing-save'){
-    const product=requireProduct(data),previous=pricingFor(data);if(product.id===EWF_ID)fail(400,'Enter a unit price on each EWF shade until catalog pricing is available.');if(product.id==='other')fail(400,'Set a unit price on each line for other brands.');current(previous,data.version);
+    const product=requireProduct(data),previous=pricingFor(data);if(product.id===EWF_ID)fail(400,'EWF uses binder pricing. Enter a confirmed base price on an EWF line to override it.');if(product.id==='other')fail(400,'Set a unit price on each line for other brands.');current(previous,data.version);
     const rateCents=amount(data.rateCents,'price per square foot',1000000);if(!rateCents)fail(400,'Enter a price greater than zero.');
     const pricing={rateCents,minimumAreaHundredths:amount(data.minimumAreaHundredths,'minimum square footage',100000),version:previous.version+1,updatedAt:time};
     if(supportsCutSheets(data))state.pricing=pricing;else state.productPricing[product.id]=pricing;
@@ -163,6 +165,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
       quote.openings=openings(fields.openings,quote,pricingFor,true);
     }
     if(fields.useCurrentPricing===true){quote.pricing=structuredClone(pricingFor(quote));for(const o of quote.openings)if(o.productId!==undefined)o.pricing=structuredClone(pricingFor(lineProduct(o,quote)));}
+    snapshotEwf(quote);
     if('name'in fields)quote.name=text(fields.name,'quote name',100,true);
     if('notes'in fields)quote.notes=text(fields.notes,'quote notes',5000);
     if('validUntil'in fields)quote.validUntil=date(fields.validUntil);
@@ -180,6 +183,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     requireProduct(quote);
     if(quote.orderId)return {order:get(state.orders,quote.orderId)};
     current(quote,data.version);
+    snapshotEwf(quote);
     if(!quote.openings.length||quoteTotals(quote).unpriced)fail(400,'Add openings and price every opening before converting to an order.');
     for(const opening of quote.openings)if(productId(lineProduct(opening,quote))===EWF_ID){try{validateEwfOpening(opening,{complete:true});}catch(e){fail(400,opening.name+': '+e.message);}}
     for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');

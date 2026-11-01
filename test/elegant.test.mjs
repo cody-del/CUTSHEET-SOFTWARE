@@ -17,7 +17,7 @@ test('EWF normalizes only active control options without retaining hidden motor 
 });
 
 test('screenshot dimensions allow decimals and enforce separate clutch and motor minimum widths',()=>{
- for(const [mode,min]of [['clutch',8],['motorized',22]]){
+ for(const [mode,min]of [['clutch',8],['motorized',25]]){
   const ewf=defaultEwf(mode);
   for(const value of [min,51.875,116])assert.equal(ewfDimensionError('width',value,ewf),'');
   for(const value of [min-.001,116.001,NaN])assert.ok(ewfDimensionError('width',value,ewf));
@@ -49,7 +49,7 @@ test('EWF never borrows square-foot rates or manufactures cut sheets',()=>{
  const line={id:'shade',productId:EWF_ID,width:51.875,height:36.58,quantity:2,pricing:{rateCents:9999,minimumAreaHundredths:2000}};
  const quote={productId:'shuttersmart',pricing:{rateCents:2500},unitPrices:{},openings:[line,{id:'smart',productId:'shuttersmart'}]};
  assert.equal(openingPrice(line,quote).unitPrice,null);
- quote.unitPrices.shade=12345;assert.equal(openingPrice(line,quote).lineTotal,24690);
+ quote.unitPrices.shade=12345;assert.equal(openingPrice(line,quote).lineTotal,33690);
  assert.equal(supportsCutSheets(line),false);assert.deepEqual(manufacturingOpenings(quote).map(o=>o.id),['smart']);
  assert.ok(!productName(line).includes('Asia'));
 });
