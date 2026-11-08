@@ -31,10 +31,10 @@ test('unit conversion and workbook dimensional relationships remain exact',()=>{
  assert.equal(part(a,'Top rail').perUnit,base.left+base.right);
  assert.equal(a.parts.filter(p=>p.name.startsWith('Stile')).reduce((n,p)=>n+p.perUnit,0),4);
 });
-test('bad inputs, unsupported options, and workbook warnings cannot generate cuts',async()=>{
+test('bad inputs stay invalid while a custom panel-width warning allows printing',async()=>{
  for(const patch of [{width:0},{height:NaN},{quantity:0},{quantity:1.2},{left:-1},{frame:'UNKNOWN'},{left:2,right:3},{color:'unsupported'},{divider:60},{mount:'I',sizeMethod:'F'}])assert.throws(()=>calculate({...base,...patch}));
  const tooWide={...base,width:100,left:1,right:0};assert.ok(calculate(tooWide).warnings.length);
- await assert.rejects(createPDF({number:'T',customer:'Test',openings:[tooWide]}));
+ assert.ok((await createPDF({number:'T',customer:'Test',openings:[tooWide]})).length>0);
 });
 test('648 representative combinations either calculate valid parts or expose workbook warnings',()=>{
  let allowed=0,blocked=0;
@@ -144,14 +144,14 @@ test('long T-post previews preserve proportions and keep all folds inside their 
   for(const shape of scene.shapes)for(const [x,y]of shape.kind==='polygon'?shape.points:[shape.a,shape.b]){assert.ok(Number.isFinite(x)&&x>=0&&x<=scene.width);assert.ok(Number.isFinite(y)&&y>=0&&y<=scene.height);}
  }
 });
-test('T-post openings over 106 inches use source panel and frame limits',async()=>{
+test('T-post openings over 106 inches retain panel-width notes without blocking PDFs',async()=>{
  const o={...tpostBase,width:110,height:76.25,tposts:{construction:'two-piece',positions:[110/3,220/3],sections:Array.from({length:3},()=>({left:1,right:1}))}};
  assert.deepEqual(calculate(o).warnings,[]);
  const pdf=await PDFDocument.load(await createPDF({number:'WIDE',customer:'Example',openings:[o]}));assert.ok(pdf.getPageCount()>0);
  assert.throws(()=>calculate({...base,width:110}));
  const tooWide={...o,width:240,tposts:{...o.tposts,positions:[80,160]}};
  assert.ok(calculate(tooWide).warnings.includes('TOO WIDE PANEL ! ! !'));
- await assert.rejects(createPDF({number:'WIDE',customer:'Example',openings:[tooWide]}));
+ assert.ok((await createPDF({number:'WIDE',customer:'Example',openings:[tooWide]})).length>0);
 });
 
  test('repeated LR configurations cover two through five sections with distinct post and section cuts',async()=>{

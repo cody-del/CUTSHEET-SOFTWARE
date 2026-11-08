@@ -39,7 +39,7 @@ test('hosted API rejects invalid input, foreign origins, and oversized requests'
     [request('/api/pdf',{job},{headers:{origin:'https://another-site.example'}}),403],
     [request('/api/pdf',{job},{headers:{'content-type':'text/plain'}}),415],
     [request('/api/pdf',' '.repeat(512001)),413],
-    [request('/api/pdf',{job:{...job,openings:[{...opening,width:100,left:1,right:0}]}}),422],
+    [request('/api/pdf',{job:{...job,openings:[{...opening,width:0,left:1,right:0}]}}),422],
     [new Request('https://cut-sheets.example/api/pdf'),405],
     [request('/api/missing',{}),404],
   ]) assert.equal((await handler(req)).status,status);

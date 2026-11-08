@@ -1,4 +1,5 @@
 import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
+import {blockingWarnings} from './public/manufacturing-help.js';
 import {FRAME_STYLES,FRAME_EDGES,frameStyle,frameNotice,frameCuttingPlan,normalizeFrame} from './public/frames.js';
 import workbook from './source/workbook.json' with {type:'json'};
 import {WorkbookEngine} from './engine.mjs';
@@ -163,7 +164,7 @@ function calculateTposts(o,e){
 }
 export function combinedParts(openings){
   const groups=new Map();
-  for(const o of openings){const result=calculate(o);if(result.warnings.length)throw new ValidationError(`${o.name}: ${result.warnings.join('; ')}`);for(const part of result.parts){
+  for(const o of openings){const result=calculate(o),errors=blockingWarnings(result);if(errors.length)throw new ValidationError(`${o.name}: ${errors.join('; ')}`);for(const part of result.parts){
     // Keep exact dimensions and manufacturing attributes. Display rounding never groups distinct cuts.
     const key=JSON.stringify([part.name,part.profile,part.length,o.color,o.louver,o.tilt,part.machining]);
     if(!groups.has(key))groups.set(key,{...part,section:null,color:o.color,quantity:0,openings:[]});

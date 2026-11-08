@@ -1,6 +1,6 @@
 import {broadleafMeasurementValue,bindBroadleafFractions} from './broadleaf-measurements.js';
 import {createAutosave} from './autosave.js';
-import {manufacturingMessage,manufacturingField} from './manufacturing-help.js';
+import {manufacturingMessage,manufacturingField,blockingWarnings,panelWidthNotes} from './manufacturing-help.js';
 import {accountFetch} from './account-storage.js';
 import {accountStorage} from './account-storage.js';
 import './auth-guard.js';
@@ -144,9 +144,21 @@ function diagram(o){if(!hasMeasurements(o))return '<p class="preview-placeholder
 const loading=()=>'<div class="loading-text">Calculating from workbook rules…</div><div class="skeleton"></div>';
 function partTable(parts){return `<div class="table-scroll"><table><thead><tr><th>PART / PROFILE</th><th class="number">QTY</th><th class="number">CUT LENGTH (${state.outputUnits})</th></tr></thead><tbody>${parts.map((p,i)=>`<tr><td>${h(p.name)}${p.section?` <span class="part-section">· section ${p.section}</span>`:''}<small>${h(p.profile)}</small></td><td class="number">${p.quantity}</td><td class="number" style="font-weight:650;color:#151515">${cut(p.length)} <span style="font-size:calc(9px + var(--text-size-increase, 0pt));font-weight:400;color:#777777">${state.outputUnits}</span></td></tr>`).join('')}</tbody></table></div>`;}
 
-function resultsHTML(){if(calculating)return loading();if(calcError)return `<div class="error-box">${icon('info')} ${h(manufacturingMessage(calcError))} ${fixOpeningButton(calcError)}</div>`;if(!result)return '';return `<div class="results-heading"><div><h3>Calculated cutting list</h3><p>${result.parts.length} part lines · quantities include all identical units</p></div><span class="badge">${icon('check')} Workbook rules</span></div>${result.warnings.length?`<div class="error-box" role="alert">${result.warnings.map(w=>`<div>${h(manufacturingMessage(w))} ${fixOpeningButton(w)}</div>`).join('')}</div>`:''}${partTable(result.parts)}${result.reviewNotes?.length?`<div class="validation-note">${icon('info')}${result.reviewNotes.map(h).join(' ')}</div>`:''}`;}
+function resultsHTML(){if(calculating)return loading();if(calcError)return `<div class="error-box">${icon('info')} ${h(manufacturingMessage(calcError))} ${fixOpeningButton(calcError)}</div>`;if(!result)return '';return `<div class="results-heading"><div><h3>Calculated cutting list</h3><p>${result.parts.length} part lines · quantities include all identical units</p></div><span class="badge">${icon('check')} Workbook rules</span></div>${calculationWarningsHTML()}${partTable(result.parts)}${result.reviewNotes?.length?`<div class="validation-note">${icon('info')}${result.reviewNotes.map(h).join(' ')}</div>`:''}`;}
 function fixOpeningButton(message){return `<button type="button" class="text-btn" data-fix-field="${manufacturingField(message)}">Fix this →</button>`;}
-function calculationStatus(){if(calculating)return loading();if(calcError)return `<div class="error-box" role="alert">${h(manufacturingMessage(calcError))} ${fixOpeningButton(calcError)}</div>`;if(!result)return hasMeasurements(currentOpening())?'':'<p class="field-help">Enter width and height to calculate this opening.</p>';if(result.status==='preview-only')return `<div class="error-box" role="alert">${result.warnings.map(w=>`<div>${h(manufacturingMessage(w))} ${fixOpeningButton(w)}</div>`).join('')}</div>`;if(quoteEditing())return `${result.warnings.length?`<div class="error-box" role="alert">${result.warnings.map(w=>`<div>${h(manufacturingMessage(w))} ${fixOpeningButton(w)}</div>`).join('')}</div>`:'<div class="status-line">Opening specifications calculated</div>'}${lightGapHTML()}`;return `${result.warnings.length?`<div class="error-box" role="alert">${result.warnings.map(w=>`<div>${h(manufacturingMessage(w))} ${fixOpeningButton(w)}</div>`).join('')}</div>`:''}<div class="status-line"><span>${icon('check')}${result.parts.length} cut lines calculated</span><button class="text-btn" id="review-cut-sheet">Review cut sheet →</button></div>${lightGapHTML()}${result.reviewNotes?.length?`<details class="review-note"><summary>Fabrication notes to verify</summary><p>${result.reviewNotes.map(h).join(' ')}</p></details>`:''}`;}
+function calculationWarningsHTML(){
+  const errors=blockingWarnings(result),notes=panelWidthNotes(result);
+  return `${errors.length?`<div class="error-box" role="alert">${errors.map(w=>`<div>${h(manufacturingMessage(w))} ${fixOpeningButton(w)}</div>`).join('')}</div>`:''}${notes.length?`<div class="validation-note" role="status">${icon('info')}<span>${notes.map(h).join(' ')} This width note does not block printing.</span></div>`:''}`;
+}
+function calculationStatus(){
+  if(calculating)return loading();
+  if(calcError)return `<div class="error-box" role="alert">${h(manufacturingMessage(calcError))} ${fixOpeningButton(calcError)}</div>`;
+  if(!result)return hasMeasurements(currentOpening())?'':'<p class="field-help">Enter width and height to calculate this opening.</p>';
+  const messages=calculationWarningsHTML();
+  if(result.status==='preview-only')return messages;
+  if(quoteEditing())return `${messages||'<div class="status-line">Opening specifications calculated</div>'}${lightGapHTML()}`;
+  return `${messages}<div class="status-line"><span>${icon('check')}${result.parts.length} cut lines calculated</span><button class="text-btn" id="review-cut-sheet">Review cut sheet →</button></div>${lightGapHTML()}${result.reviewNotes?.length?`<details class="review-note"><summary>Fabrication notes to verify</summary><p>${result.reviewNotes.map(h).join(' ')}</p></details>`:''}`;
+}
 async function recalculate({notifyGap=true}={}){const o=currentOpening();if(quoteEditing()&&!isShutterLine(o)){requestNumber++;result=null;calculating=false;calcError='';return;}const serial=++requestNumber;result=null;calcError='';calculating=true;const target=$('#results')||$('#preview-content');if(!target)return;if(!hasMeasurements(o)){calculating=false;target.innerHTML=tab==='preview'?'<p class="preview-placeholder">Enter width and height in Openings before printing this cut sheet.</p>':calculationStatus();if($('.diagram-wrap'))$('.diagram-wrap').innerHTML=diagram(o);return;}if(invalidFields.size){calculating=false;calcError='Correct the highlighted fields to calculate this opening.';target.innerHTML=calculationStatus();return;}target.innerHTML=loading();if($('.diagram-wrap'))$('.diagram-wrap').innerHTML=diagram(o);try{const response=await accountFetch('/api/calculate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)});const data=await response.json();if(serial!==requestNumber)return;if(!response.ok)throw new Error(data.error);result=data;}catch(e){if(serial!==requestNumber)return;calcError=e.message==='Failed to fetch'?'The local app server is unavailable. Start the app server and retry.':e.message;}if(serial!==requestNumber)return;calculating=false;if($('.diagram-wrap'))$('.diagram-wrap').innerHTML=diagram(o);if(tab==='preview'&&$('#preview-content')){$('#preview-content').innerHTML=previewContent();}else if($('#results'))$('#results').innerHTML=calculationStatus();checkLightGap(o,notifyGap);}
 function checkLightGap(o,notify){
   if(!result)return;
@@ -160,7 +172,7 @@ function previewPage(){const j=currentJob();if(!j.openings.length)return `<div c
 const previewWarning=manufacturingMessage;
 function previewContent(){
   if(!result&&!calcError)return loading();
-  const j=currentJob(),o=currentOpening(),warnings=calcError?[calcError]:(result.warnings||[]),hasCuts=result&&result.status!=='preview-only';
+  const j=currentJob(),o=currentOpening(),warnings=calcError?[calcError]:blockingWarnings(result),hasCuts=result&&result.status!=='preview-only';
   const facts=cutSheetFacts(o,result,{measurement:measure,length:cut,inputUnits:state.units,units:state.outputUnits});
   const machining=hasCuts?[['Hinges from stile end',result.hinges.map(cut).join(' · ')],...result.machining.map(m=>[machiningLabel(m.label),cut(m.value)])]:[];
   const notes=cutSheetNotes(result);

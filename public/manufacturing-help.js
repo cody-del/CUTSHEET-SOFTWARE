@@ -1,3 +1,8 @@
+// This workbook limit is advisory for the custom shop. Keep every other
+// warning blocking, including unknown warnings and light-gap failures.
+export const isPanelWidthWarning=message=>/^TOO WIDE PANEL(?:\s*!)*$/.test(String(message).trim());
+export const blockingWarnings=result=>(result?.warnings||[]).filter(message=>!isPanelWidthWarning(message));
+export const panelWidthNotes=result=>(result?.warnings||[]).some(isPanelWidthWarning)?['Custom panel width: exceeds the workbook\'s standard panel-width limit.']:[];
 export function manufacturingMessage(message){
  return String(message).replace(/WRONG MOUNT OPTION OR FRAME(?:\s*!)*/g,'This frame is not supported with the selected mount. Review Frame style and Mount.');
 }

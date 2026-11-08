@@ -1,4 +1,5 @@
 import {frameDescription,frameSetupLabel} from './frames.js';
+import {panelWidthNotes} from './manufacturing-help.js';
 
 export function firstLouverHole(result){
   const value=result?.machining?.find(m=>m.label==='First louver hole from stile top')?.value;
@@ -23,7 +24,7 @@ export function cutSheetFacts(o,result,{measurement=String,length=n=>n.toFixed(2
   ];
 }
 export function cutSheetNotes(result){
-  const notes=[],aluminum=[];
+  const notes=panelWidthNotes(result),aluminum=[];
   for(const note of result?.reviewNotes||[]){
     const section=/^Section (\d+):.*aluminum reinforcement/.exec(note);
     if(section){aluminum.push(section[1]);continue;}

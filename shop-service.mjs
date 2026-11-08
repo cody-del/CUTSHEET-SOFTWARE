@@ -4,6 +4,7 @@ import {waitingShopOrders,heldOrderSheet,productionName} from './order-manufactu
 import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,validateOpening,ValidationError} from './calculations.mjs';
+import {blockingWarnings} from './public/manufacturing-help.js';
 import {salesOperations,runSales,orderJob} from './sales-service.mjs';
 import {progress,production,productionChecks,openingCheckStatus,openingProduction} from './public/shop-state.js';
 import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
@@ -48,7 +49,7 @@ function releaseJob(state,data,a,time){
   const seen=new Set(),openings=input.openings.map(o=>{
     identifier(o.id);if(seen.has(o.id))fail(400,'Opening IDs must be unique.');seen.add(o.id);
     text(o.name,'opening name',80);o=validateOpening(o,{shutterSizeOnly:true});const result=calculate(o);
-    if(result.warnings.length)fail(422,`${o.name}: ${result.warnings.join(' ')}`);
+    const errors=blockingWarnings(result);if(errors.length)fail(422,`${o.name}: ${errors.join(' ')}`);
     if(!result.parts.length)fail(422,`${o.name} has no calculated cut lines.`);
     return {input:structuredClone(o),result,...(state.orders?.[id]?.finishingProgress?{production:structuredClone(state.orders[id].finishingProgress.openings?.[o.id]||{})}:{}),lines:result.parts.map((part,i)=>({...part,id:o.id+'-'+i,completed:0,status:'not-cut',shortage:null}))};
   });

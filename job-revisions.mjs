@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {calculate,validateOpening,configuration} from './calculations.mjs';
+import {blockingWarnings} from './public/manufacturing-help.js';
 import {supportsCutSheets,manufacturingOpenings,CUT_SHEETS_ONLY} from './public/products.js';
 import {frameSideStyles,frameDescription,frameSetupLabel} from './public/frames.js';
 import {productionChecks,openingCheckStatus,openingProduction,production,progress} from './public/shop-state.js';
@@ -48,7 +49,7 @@ function prepare(job,items){
  const nextRevision=(job.revision||1)+1,impact=[];
  const openings=items.map(input=>{
   const old=job.openings.find(o=>o.input.id===input.id),result=calculate(input);
-  if(result.warnings.length||!result.parts.length)fail(422,`${input.name}: ${result.warnings.join(' ')||'No valid cut lines.'}`);
+  const errors=blockingWarnings(result);if(errors.length||!result.parts.length)fail(422,`${input.name}: ${errors.join(' ')||'No valid cut lines.'}`);
   const previous=new Map((old?.lines||[]).map(line=>[partKey(line),line]));
   const changes=[],lines=result.parts.map((part,i)=>{
    const before=previous.get(partKey(part));previous.delete(partKey(part));
