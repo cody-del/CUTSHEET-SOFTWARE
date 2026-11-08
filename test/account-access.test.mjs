@@ -107,6 +107,19 @@ test('delete and restore stay inside the authenticated owner workspace for conta
  }
 });
 
+test('production removal and recovery stay inside the authenticated owner workspace',async t=>{
+ const f=await fixture(t);await f.enroll(A);await f.enroll(B);
+ const published=await f.run('publish',{job:{id:'job-a',name:'Private job',number:'A-001',openings:[opening],notes:''}});
+ const job=published.value.job;
+ assert.equal((await f.run('production-remove',{id:job.id,version:job.version,ownerId:A},B)).status,404);
+ assert.equal((await f.run('production-remove',{id:job.id,version:job.version})).status,200);
+ const board=(await f.run('dashboard')).value;assert.equal(board.jobs.length,0);assert.equal(board.removedJobs.length,1);
+ assert.equal((await f.run('dashboard',undefined,B)).value.removedJobs.length,0);
+ assert.equal((await f.run('production-restore',{id:job.id,version:board.removedJobs[0].version,ownerId:A},B)).status,404);
+ assert.equal((await f.run('production-restore',{id:job.id,version:board.removedJobs[0].version})).status,200);
+ assert.equal((await f.run('jobs')).value.jobs.length,1);
+});
+
 test('signup needs the secret; direct Auth users, unconfirmed users and revoked sessions cannot enroll',async t=>{
  const f=await fixture(t);
  const request=(action,data)=>new Request('https://example.test/api/auth/'+action,{method:'POST',headers:{'Content-Type':'application/json',origin:'https://example.test'},body:JSON.stringify(data)});

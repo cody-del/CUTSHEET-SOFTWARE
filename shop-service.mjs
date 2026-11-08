@@ -1,3 +1,4 @@
+import {productionRemovalOperations,removedFromProduction,removedProductionJobs,changeProductionRemoval} from './production-removal.mjs';
 import {validateProgressEvent,prepareProgressSync} from './shop-sync.mjs';
 import {waitingShopOrders,heldOrderSheet,productionName} from './order-manufacturing.mjs';
 import {productId,manufacturingOpenings,hasManufacturingLines,supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
@@ -76,7 +77,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
     return null;
   }
   function requireActor(state,cookie,owner=false){const a=actor(state,cookie);if(!a)fail(401,'Please sign in with the shop code or the owner account.');if(owner&&a.role!=='owner')fail(403,'Only the owner can do that.');return a;}
-  function jobFor(state,data){const j=state.jobs[identifier(data.id)];if(!j||j.deletedAt||state.orders?.[j.id]?.deletedAt)fail(404,'This shop job was removed from Production.');if(j.version!==data.version)fail(409,'This cut sheet changed on another device. Review the latest values and try again.');return j;}
+  function jobFor(state,data){const j=state.jobs[identifier(data.id)];if(!j||j.deletedAt||state.orders?.[j.id]?.deletedAt||removedFromProduction(state,j.id))fail(404,'This shop job was removed from Production.');if(j.version!==data.version)fail(409,'This cut sheet changed on another device. Review the latest values and try again.');return j;}
   return {
     configured,
     async run(operation,data={},cookie={}) {
@@ -122,6 +123,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           delete state.pairings[hash(code)];delete state.attempts[key];
           return {cookie:'shop',token,maxAge:180*86400};
         }
+        if(productionRemovalOperations.includes(operation)){const a=requireActor(state,cookie,true);try{return changeProductionRemoval(state,operation,data,a,time);}catch(e){fail(e.status||400,e.message);}}
         if(revisionOperations.includes(operation)){const a=requireActor(state,cookie,true);return runRevision(state,operation,data,a,time);}
         if(salesOperations.includes(operation)){const a=requireActor(state,cookie,true);return runSales(state,operation,data,time,release=>releaseJob(state,release,a,time),a.name);}
         if(workspaceOperations.includes(operation)){const a=requireActor(state,cookie,true);return runWorkspace(state,operation,data,time,release=>releaseJob(state,release,a,time));}
@@ -134,13 +136,14 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           return {ok:true,serverTime:time};
         }
         if(operation==='jobs'||operation==='dashboard'){
-          return {jobs:Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]?.deletedAt).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
+          return {jobs:Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]?.deletedAt&&!removedFromProduction(state,j.id)).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
+              removedJobs:removedProductionJobs(state),
               shopAccess:shopAccessStatus(state),
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt,lastSeenAt,pendingUpdates})=>({id,name,createdAt,lastSeenAt,pendingUpdates}))}:{})};
         }
         if(operation==='job-get'){
-          const id=identifier(data.id);if(state.jobs[id]?.deletedAt||state.orders?.[id]?.deletedAt)fail(404,'This job was removed from Production.');if(state.jobs[id])return {job:productionView(state,state.jobs[id])};
+          const id=identifier(data.id);if(state.jobs[id]?.deletedAt||state.orders?.[id]?.deletedAt||removedFromProduction(state,id))fail(404,'This job was removed from Production.');if(state.jobs[id])return {job:productionView(state,state.jobs[id])};
           const order=state.orders?.[id];if(!order||!hasManufacturingLines(order))fail(404,'This digital cut sheet was not found.');
           return {job:heldOrderSheet(order)};
         }
@@ -152,7 +155,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(operation==='revoke'){const device=Object.values(state.devices).find(d=>d.id===data.deviceId);if(!device)fail(404,'Device not found.');device.revoked=true;return {ok:true};}
         if(operation==='publish')return releaseJob(state,data,a,time);
         const heldOrder=operation==='stage'&&!state.jobs[data.id]?state.orders?.[identifier(data.id)]:null;
-        if(heldOrder&&(heldOrder.deletedAt||!hasManufacturingLines(heldOrder)))fail(404,'This digital cut sheet was not found.');
+        if(heldOrder&&(heldOrder.deletedAt||removedFromProduction(state,heldOrder.id)||!hasManufacturingLines(heldOrder)))fail(404,'This digital cut sheet was not found.');
         if(heldOrder&&heldOrder.version!==data.version)fail(409,'This order changed on another device. Reload it before saving again.');
         const job=heldOrder?heldOrderSheet(heldOrder):jobFor(state,data);
         if(operation==='plan'){Object.assign(job,plan(data));audit(job,a,'Updated cutting estimate and target date',time);return {job};}

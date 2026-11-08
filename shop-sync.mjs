@@ -1,3 +1,4 @@
+import {removedFromProduction} from './production-removal.mjs';
 import {createHash} from 'node:crypto';
 import {progressTarget} from './public/shop-progress.js';
 import {productionChecks} from './public/shop-state.js';
@@ -14,7 +15,7 @@ export function prepareProgressSync(state,actor,event,time){
  const digest=createHash('sha256').update(JSON.stringify(event)).digest('hex');
  const receipt=state.productionEvents?.[event.eventId];
  const job=state.jobs[event.payload.id];
- if(!job||job.deletedAt||state.orders?.[job.id]?.deletedAt)error(409,'This job was removed from Production. Your saved update needs owner review.');
+ if(!job||job.deletedAt||state.orders?.[job.id]?.deletedAt||removedFromProduction(state,job.id))error(409,'This job was removed from Production. Your saved update needs owner review.');
  if(receipt){
   if(receipt.actorId!==actor.id||receipt.digest!==digest)error(409,'This update ID was already used for different progress.');
   return {duplicate:true,job};
