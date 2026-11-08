@@ -16,6 +16,19 @@ test('navigation reuses fresh snapshots across documents without another network
  const nextPage=createShopClient(options),snapshot=nextPage.peek('sales');assert.equal(snapshot.rows[0].name,'Saved contact');snapshot.rows[0].name='Unsaved edit';
  assert.equal((await nextPage.request('sales')).rows[0].name,'Saved contact');assert.equal(calls.length,2);
 });
+test('manual refresh bypasses fresh cached production and order snapshots after another device updates them',async()=>{
+ let version=1;const calls=[];
+ const client=createShopClient({storage:memory(),fetch:async(url,options)=>{calls.push({url,options});return response(url.endsWith('session')?{role:'owner',id:'owner'}:{version});}});
+ await client.request('session');
+ for(const endpoint of ['dashboard','jobs','sales'])assert.equal((await client.request(endpoint)).version,1);
+ version=2;
+ for(const endpoint of ['dashboard','jobs','sales']){
+  assert.equal((await client.request(endpoint)).version,1);
+  assert.equal((await client.request(endpoint,undefined,{force:true})).version,2);
+  assert.equal(client.peek(endpoint).version,2);
+ }
+ assert.equal(calls.length,7);assert.ok(calls.every(call=>call.options.cache==='no-store'));
+});
 test('old snapshots may display only with a recently validated session; reads refresh after 30 seconds',async()=>{
  const {client,tick,calls}=setup();await client.request('session');await client.request('sales');tick(FRESH_MS);
  assert.equal(client.peek('sales'),undefined);await client.request('session');assert.equal(client.peek('sales').version,1);

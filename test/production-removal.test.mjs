@@ -99,3 +99,28 @@ test('waiting orders can be removed and restored without deleting the order or i
  board=await f.run('dashboard');assert.equal(board.jobs.length,1);assert.equal(board.removedJobs.length,0);
  const state=await f.store.transaction(s=>s);assert.equal(state.orders.waiting.productionRemovedAt,undefined);assert.equal(state.jobs.waiting.productionRemovedAt,undefined);
 });
+
+test('production removal keeps a real order active; order deletion moves it to Deleted and can be restored separately',async t=>{
+ const f=await fixture(t);
+ await f.run('contact-save',{id:'customer-1',version:0,fields:{firstName:'Test',lastName:'Customer',address:'',phone:'',email:'',notes:''}});
+ await f.run('pricing-save',{version:0,rateCents:2500,minimumAreaHundredths:0});
+ let {quote}=await f.run('quote-create',{id:'quote-1',contactId:'customer-1'});
+ ({quote}=await f.run('quote-save',{id:quote.id,version:quote.version,fields:{openings:[opening]}}));
+ let {order}=await f.run('quote-convert',{id:quote.id,version:quote.version});
+ ({order}=await f.run('order-confirm',{id:order.id,version:order.version,confirmationId:'confirm-1',saleTotalCents:100000,payment:{id:'deposit-1',amountCents:25000,receivedOn:'2026-11-08',method:'cash',note:'Test only'}}));
+ let {job}=await f.run('job-get',{id:order.id});
+ await f.run('production-remove',{id:job.id,version:job.version});
+ let sales=await f.run('sales');assert.equal(sales.orders.length,1);assert.equal(sales.deleted.orders.length,0);
+ assert.equal(sales.orders[0].productionStage,'removed');assert.equal(sales.orders[0].financials.paidCents,25000);
+ const detail=await f.run('sales-get',{kind:'order',id:order.id});assert.equal(detail.productionStage,'removed');
+ await f.run('sales-delete',{kind:'order',id:order.id,version:detail.record.version});
+ sales=await f.run('sales');assert.equal(sales.orders.length,0);assert.equal(sales.deleted.orders.length,1);
+ assert.equal((await f.run('dashboard')).removedJobs.length,0);
+ await f.run('sales-restore',{kind:'order',id:order.id,version:sales.deleted.orders[0].version});
+ sales=await f.run('sales');assert.equal(sales.orders.length,1);assert.equal(sales.deleted.orders.length,0);
+ assert.equal(sales.orders[0].financials.paidCents,25000);
+ const board=await f.run('dashboard');assert.equal(board.jobs.length,0);assert.equal(board.removedJobs.length,1);
+ await f.run('production-restore',{id:job.id,version:board.removedJobs[0].version});
+ assert.notEqual((await f.run('sales')).orders[0].productionStage,'removed');
+ assert.equal((await f.run('dashboard')).jobs.length,1);
+});

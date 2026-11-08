@@ -21,7 +21,7 @@ const pendingSync=()=>offline.view()?.queue||[];
 const canWorkOffline=()=>session?.role==='shop'&&offlineReady&&offlineAccess(offline.view());
 let heldSheet=null,detailError='';
 const isOwner=()=>session?.role==='owner';
-let session=null,jobs=[],devices=[],removedJobs=[],shopAccess={enabled:false},pendingOrders=[],selected=new URLSearchParams(location.search).get('job'),filter=new URLSearchParams(location.search).get('filter')||sessionValue('production-filter:'+mode,'all'),connectionError='',busy=false,offset=0,loaded=false,lastSync=0,lastPreload=0,refreshing=null,scheduleKey='';
+let session=null,jobs=[],devices=[],removedJobs=[],shopAccess={enabled:false},pendingOrders=[],selected=new URLSearchParams(location.search).get('job'),filter=new URLSearchParams(location.search).get('filter')||sessionValue('production-filter:'+mode,'all'),connectionError='',busy=false,offset=0,loaded=false,lastSync=0,lastPreload=0,refreshing=null,manualRefreshing=false,scheduleKey='';
 if(!['all','attention','removed'].includes(filter))filter='all';
 const compactProduction=matchMedia('(max-width:1100px)');
 let productionView=sessionValue('production-view',null),stageFilter='all',jobSearch='';
@@ -42,7 +42,7 @@ function restoreControlFocus(key){if(key&&!$('#shop-dialog').open)document.query
 function render(){
  const focusKey=document.activeElement?.dataset.focusKey;
  document.title=(deviceSettings()?'Shop access':current()?current().number+' · Digital cut sheet':'Production')+' · Cut Sheets';
- $('#workshop').innerHTML=header()+`<main class="content shop-content" id="main-content">${connectionError?`<div class="shop-error" role="alert">${h(connectionError)} <button class="text-btn" data-action="refresh">Retry connection</button></div>`:''}${syncNotice()}${!session?'<p class="subheading">Connecting to the workshop…</p>':!session.configured?setupPage():!session.role?accessPage():!loaded?'<p class="subheading">Loading production jobs…</p>':deviceSettings()?devicesPage():selectedRemoved()?removedDetail(selectedRemoved()):selected&&!current()?`<section class="shop-empty"><h1>${detailError?'Digital cut sheet unavailable':'Loading digital cut sheet…'}</h1>${detailError?`<p>${h(detailError)}</p><button class="btn" data-action="refresh">Retry</button><button class="btn" data-action="back">Back to Production</button>`:''}</section>`:current()?detailPage(current()):dashboard()}</main>`;bind();updateClocks();if(session?.role==='shop'&&(pendingSync().length||connectionError||!navigator.onLine))document.querySelectorAll('[data-timer],[data-action="print-pdf"]').forEach(b=>b.disabled=true);restoreControlFocus(focusKey);
+ $('#workshop').innerHTML=header()+`<main class="content shop-content" id="main-content">${connectionError?`<div class="shop-error" role="alert">${h(connectionError)} <button class="text-btn" data-action="refresh">Retry connection</button></div>`:''}${syncNotice()}${!session?'<p class="subheading">Connecting to the workshop…</p>':!session.configured?setupPage():!session.role?accessPage():!loaded?'<p class="subheading">Loading production jobs…</p>':deviceSettings()?devicesPage():selectedRemoved()?removedDetail(selectedRemoved()):selected&&!current()?`<section class="shop-empty"><h1>${detailError?'Digital cut sheet unavailable':'Loading digital cut sheet…'}</h1>${detailError?`<p>${h(detailError)}</p><button class="btn" data-action="refresh">Retry</button><button class="btn" data-action="back">Back to Production</button>`:''}</section>`:current()?detailPage(current()):dashboard()}</main>`;bind();updateRefreshButtons();updateClocks();if(session?.role==='shop'&&(pendingSync().length||connectionError||!navigator.onLine))document.querySelectorAll('[data-timer],[data-action="print-pdf"]').forEach(b=>b.disabled=true);restoreControlFocus(focusKey);
 }
 function setupPage(){return `<section class="shop-empty"><span class="eyebrow">SHARED WORKSHOP</span><h1>Connect the workshop</h1><p>This workshop’s shared storage and owner access haven’t been set up yet. Your saved jobs and PDF tools are still available.</p><p>Once connected, the shop iPad and Production will share cut progress and material requests.</p><a class="btn primary" href="/">Back to jobs</a></section>`;}
 function accessPage(){return `<section class="shop-access"><h1>${owner?'Production':'Shop sign in'}</h1><p class="subheading">${owner?'Sign in to see production, timing, and material requests.':'Enter the shop code your owner gave you. This iPad will stay signed in.'}</p><form id="access-form"><div class="field"><label for="access-value">${owner?'Owner password':'Shop code'}</label><input id="access-value" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required></div><p class="field-error" id="access-error" role="alert"></p><button class="btn primary" type="submit">Sign in</button></form></section>`;}
@@ -53,10 +53,10 @@ function filtered(){return jobs.filter(job=>matchesJob(job)&&(stageFilter==='all
 function pendingVisible(){return stageFilter!=='all'&&stageFilter!=='waiting'?[]:pendingOrders.filter(o=>matchesJob(o)&&(filter==='all'||filter==='attention'&&o.readiness?.status==='blocked'));}
 function productionActions(record,content,layout='card'){
  if(!isOwner())return content;
- return `<div class="production-${layout}-wrap">${content}<button class="production-remove" data-production-remove="${h(record.id)}" aria-label="Delete ${h(record.number)} from production">Delete</button></div>`;
+ return `<div class="production-${layout}-wrap">${content}<button class="production-remove" data-production-remove="${h(record.id)}" aria-label="Remove ${h(record.number)} from production">Remove</button></div>`;
 }
 function productionList(){const pending=pendingVisible(),active=filtered();return `<section class="production-job-list" aria-label="Production jobs">${pending.map(o=>productionActions(o,`<button class="production-list-row" data-job="${h(o.id)}"><span><strong>${h(jobLabel(o))}</strong><small>${h(o.number)} · ${o.openingCount} openings</small></span><span class="shop-badge">Waiting</span><span>${h(o.readiness?.label||'Confirm order')} →</span></button>`,'list')).join('')}${active.map(job=>{const stage=production(job),timing=schedule(job,now());return productionActions(job,`<button class="production-list-row" data-job="${h(job.id)}"><span><strong>${h(jobLabel(job))}</strong><small>${h(job.number)} · ${completedOpenings(job)} of ${job.openings.length} openings complete</small>${remainingWorkBadges(job)}</span><span class="shop-badge ${stage.key==='complete'?'complete':''}">${stage.label}</span><span>${timing.tone==='attention'?h(timing.label):stage.key==='complete'?'View completed job':stage.key==='waiting'?'Start job':'Continue '+stage.label.toLowerCase()} →</span></button>`,'list');}).join('')}${!pending.length&&!active.length?'<p class="workspace-empty">No jobs match. Try another stage or clear your search.</p>':''}</section>`;}
-function removedList(){const list=removedJobs.filter(matchesJob);return `<section class="production-removed-list" aria-label="Removed production jobs">${list.length?list.map(j=>`<div class="production-removed-row"><div><strong>${h(j.number)} · ${h(jobLabel(j))}</strong><small>Removed ${new Date(j.removedAt).toLocaleDateString()}</small></div><button class="btn" data-production-restore="${h(j.id)}">Restore to production</button></div>`).join(''):'<p class="workspace-empty">No removed jobs.</p>'}</section>`;}
+function removedList(){const list=removedJobs.filter(matchesJob);return `<p class="subheading">Removed from Production only. Orders and saved progress are kept.</p><section class="production-removed-list" aria-label="Removed production jobs">${list.length?list.map(j=>`<div class="production-removed-row"><div><strong>${h(j.number)} · ${h(jobLabel(j))}</strong><small>Removed ${new Date(j.removedAt).toLocaleDateString()}</small></div><button class="btn" data-production-restore="${h(j.id)}">Restore to production</button></div>`).join(''):'<p class="workspace-empty">No removed jobs.</p>'}</section>`;}
 function removedDetail(job){return `<button class="text-btn shop-back" data-action="back">← Production</button><section class="shop-empty"><h1>${h(job.number)} · ${h(jobLabel(job))}</h1><p>This job was removed from Production. Its order and saved progress are still available.</p><button class="btn primary" data-production-restore="${h(job.id)}">Restore to production</button></section>`;}
 function productionResults(){return isOwner()&&filter==='removed'?removedList():currentProductionView()==='list'?productionList():productionBoard();}
 function pendingCards(list){return list.map(o=>productionActions(o,`<button type="button" class="production-card pending-order" data-job="${h(o.id)}"><span class="eyebrow">${h(o.number)}</span><strong>${h(jobLabel(o))}</strong><span>${o.openingCount} opening${o.openingCount===1?'':'s'}</span><span class="production-attention">${h(o.readiness?.label||'Awaiting owner confirmation')}</span><small>Cutting on hold · finishing checks available</small><span class="production-card-action">Open cut sheet →</span></button>`)).join('');}
@@ -119,12 +119,27 @@ async function downloadPrintPDF(){const job=current();if(!job||job.held)return;c
 function dialog(title,body,footer){const d=$('#shop-dialog');d.innerHTML=`<div class="modal-heading"><h2>${title}</h2><button class="icon-btn" data-close aria-label="Close dialog">×</button></div><div class="modal-body">${body}<p class="field-error" id="dialog-error" role="alert"></p></div><div class="modal-footer">${footer}</div>`;d.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>d.close());d.showModal();}
 async function refresh({quiet=false}={}){
   if(refreshing){await refreshing;if(quiet)return;}
-  refreshing=loadLatest(quiet);try{await refreshing;}finally{refreshing=null;}
+  const request=loadLatest(quiet);refreshing=request;try{await request;}finally{if(refreshing===request)refreshing=null;}
+}
+function updateRefreshButtons(){
+ document.querySelectorAll('[data-action="refresh"]').forEach(button=>{
+  button.dataset.refreshLabel??=button.textContent;
+  button.disabled=manualRefreshing;button.setAttribute('aria-busy',String(manualRefreshing));
+  button.textContent=manualRefreshing?'Refreshing…':button.dataset.refreshLabel;
+ });
+}
+async function refreshNow(){
+ if(manualRefreshing)return;
+ manualRefreshing=true;updateRefreshButtons();
+ try{
+  await refresh();
+  if(connectionError)notify('Refresh failed. '+connectionError);
+  else if(session?.role)notify(session.role==='shop'&&pendingSync().length?'Latest jobs loaded. Some saved updates still need review.':'Production is up to date.');
+ }finally{manualRefreshing=false;updateRefreshButtons();}
 }
 async function loadLatest(quiet){
   try{
-    if(!session?.role){session=await shopRequest('session');if(!session.role){connectionError='';render();return;}}
-    session=await shopRequest('session');
+    session=await shopRequest('session',undefined,{force:!quiet});
     if(!session.role){await offline.clear().catch(()=>{});offlineReady=false;jobs=[];devices=[];removedJobs=[];pendingOrders=[];loaded=false;render();return;}
     if(session.role==='shop'&&pendingSync().some(e=>!e.error))await offline.flush();
     const data=await shopRequest(isOwner()?'dashboard':'jobs',undefined,{force:true});
@@ -180,7 +195,7 @@ function shopCodeDialog(){
 }
 function removalDialog(id,restore=false){
  const job=(restore?removedJobs:[...jobs,...pendingOrders]).find(j=>j.id===id);if(!job||!isOwner())return;
- dialog(restore?'Restore to production?':'Delete from production?',`<p><strong>${h(job.number)} · ${h(jobLabel(job))}</strong></p><p>${restore?'This job returns to its saved production stages. Completed work is kept, and the timer stays paused.':'This removes the job from every stage and from the shop iPads when they next sync. Its order, payments, and completed work stay saved.'}</p>${restore?'':'<p>You can restore it from <strong>Production → Removed</strong>.</p>'}`,`<button class="btn" data-close>Cancel</button><button class="btn primary" id="dialog-save">${restore?'Restore to production':'Delete from production'}</button>`);
+ dialog(restore?'Restore to production?':'Remove from production?',`<p><strong>${h(job.number)} · ${h(jobLabel(job))}</strong></p><p>${restore?'This job returns to its saved production stages. Completed work is kept, and the timer stays paused.':'This removes the job from every stage and from the shop iPads when they next sync. Its order stays in Orders. Payments and completed work stay saved.'}</p>${restore?'':'<p>You can restore it from <strong>Production → Removed</strong>. To delete the order itself, use <strong>Orders → Delete</strong>.</p>'}`,`<button class="btn" data-close>Cancel</button><button class="btn primary" id="dialog-save">${restore?'Restore to production':'Remove from production'}</button>`);
  $('#dialog-save').onclick=async()=>{
   if(busy)return;busy=true;$('#dialog-save').disabled=true;
   try{await shopRequest(restore?'production-restore':'production-remove',{id:job.id,version:job.version});$('#shop-dialog').close();heldSheet=null;await refresh();notify(restore?'Job restored to production.':'Job removed. You can restore it from Removed.');}
@@ -199,7 +214,7 @@ function bind(){
   bindJobLinks();
   document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;remember('production-filter:'+mode,filter);const u=new URL(location.href);u.searchParams.set('filter',filter);history.replaceState(history.state,'',u);render();});
   document.querySelectorAll('[data-unit]').forEach(b=>b.onclick=()=>{units=b.dataset.unit;render();});
-  document.querySelectorAll('[data-action]').forEach(b=>b.onclick=async()=>{const action=b.dataset.action;if(action==='offline-prepare')return prepareOfflineShell();if(action==='sync-review')return reviewWaiting();if(action==='sync-export')return exportWaiting();if(action==='back'){if(history.state?.fromBoard)history.back();else navigateState(location.pathname);return;}if(action==='print-pdf')return downloadPrintPDF();if(action==='refresh')await refresh();if(action==='plan')planDialog();if(action==='shop-code')shopCodeDialog();if(action==='logout'){location.href='/auth.html?mode=logout';}});
+  document.querySelectorAll('[data-action]').forEach(b=>b.onclick=async()=>{const action=b.dataset.action;if(action==='offline-prepare')return prepareOfflineShell();if(action==='sync-review')return reviewWaiting();if(action==='sync-export')return exportWaiting();if(action==='back'){if(history.state?.fromBoard)history.back();else navigateState(location.pathname);return;}if(action==='print-pdf')return downloadPrintPDF();if(action==='refresh')return refreshNow();if(action==='plan')planDialog();if(action==='shop-code')shopCodeDialog();if(action==='logout'){location.href='/auth.html?mode=logout';}});
   document.querySelectorAll('[data-timer]').forEach(b=>b.onclick=()=>change('timer',{id:current().id,version:current().version,action:b.dataset.timer},b.dataset.timer==='start'?'Cutting timer started.':'Cutting timer paused.'));
   document.querySelectorAll('[data-cut]').forEach(b=>b.onclick=()=>{const job=current(),line=job.openings.flatMap(o=>o.lines).find(l=>l.id===b.dataset.line);if(b.dataset.cut==='partial')return partialDialog(line);if(b.dataset.cut==='not-cut'&&line.completed)return confirmReset(line);if(line.status===b.dataset.cut)return;change('line',{id:job.id,version:job.version,lineId:line.id,status:b.dataset.cut});});
   document.querySelectorAll('[data-alert]').forEach(b=>b.onclick=()=>{const job=jobs.find(j=>j.id===b.dataset.id);change('resolve',{id:job.id,version:job.version,lineId:b.dataset.line,status:b.dataset.alert},b.dataset.alert==='resolved'?'Material marked ready. Cut progress is unchanged.':'Material request acknowledged.');});

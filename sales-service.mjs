@@ -1,3 +1,4 @@
+import {removedFromProduction} from './production-removal.mjs';
 import {emptyCompanyProfile,validateCompanyProfile} from './company-profile.mjs';
 import {orderFinancials,salesFinancials} from './public/order-finance.js';
 import {orderReadiness,orderManufacturingOpenings} from './order-manufacturing.mjs';
@@ -86,7 +87,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
   const touch=r=>{r.version++;r.updatedAt=time;return r;};
   const active=collection=>Object.values(collection).filter(r=>!r.deletedAt);
   const recordSummary=q=>({...summary(q),customerName:contactName(q.customer||state.contacts[q.contactId]||{}),orderDeleted:!!state.orders[q.orderId]?.deletedAt});
-  const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:hasManufacturingLines(q)?production(state.jobs[q.id]).key:null,financials:orderFinancials(q,quoteTotals(q).total),readiness:orderReadiness(q,!!state.jobs[q.id])});
+  const orderSummary=q=>({...summary(q),released:!!state.jobs[q.id],productionStage:hasManufacturingLines(q)?removedFromProduction(state,q.id)?'removed':production(state.jobs[q.id]).key:null,financials:orderFinancials(q,quoteTotals(q).total),readiness:orderReadiness(q,!!state.jobs[q.id])});
   if(operation==='sales-delete'||operation==='sales-restore'){
     if(!['contact','quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const collection=state[data.kind+'s'],record=get(collection,data.id,true);current(record,data.version);
@@ -128,7 +129,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     if(!['quote','order'].includes(data.kind))fail(400,'Choose a contact, quote, or order.');
     const record=get(data.kind==='quote'?state.quotes:state.orders,data.id);
     requireProduct(record);
-    return {company:state.companyProfile||emptyCompanyProfile(),record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId,true),orderDeleted:!!state.orders[record.orderId]?.deletedAt,totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)&&completeOpening(o)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
+    return {company:state.companyProfile||emptyCompanyProfile(),record:{...record,productId:productId(record)},contact:record.customer||get(state.contacts,record.contactId,true),orderDeleted:!!state.orders[record.orderId]?.deletedAt,totals:quoteTotals(record),previews:hasManufacturingLines(record)?record.openings.map(o=>isManufacturingLine(o,record)&&completeOpening(o)?calculate(o).louverLayout||null:null):[],productPricing:Object.fromEntries(PRODUCTS.map(p=>[p.id,pricingFor({productId:p.id})])),released:!!state.jobs[record.id],...(data.kind==='order'?{productionStage:hasManufacturingLines(record)?removedFromProduction(state,record.id)?'removed':production(state.jobs[record.id]).key:null,financials:orderFinancials(record,quoteTotals(record).total),readiness:orderReadiness(record,!!state.jobs[record.id])}:{})};
   }
   if(operation==='contact-save'){
     const id=identifier(data.id),previous=state.contacts[id];if(previous){get(state.contacts,id);current(previous,data.version);}else if(data.version!==0)fail(409,'This contact no longer exists.');
