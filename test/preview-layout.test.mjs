@@ -43,8 +43,8 @@ test('a two-section T-post groups like parts in a full-width table, with every c
       assert.ok(runs.some(r=>r.text===p.profile&&r.y<=name.y+1&&r.y>bottom),`${name.text}: profile retained`);
     });
     assert.equal(runs.filter(r=>r.text==='WHOLE DISTANCE').length,result.parts.filter(p=>p.name.startsWith('Stile')).length);
-    const holeLabel=runs.find(r=>r.text==='WHOLE DISTANCE'),holeValue=runs.find(r=>r.x===holeLabel.x&&r.y<holeLabel.y&&r.text.endsWith(` ${units}`));
-    assert.ok(holeValue&&holeLabel.y-holeValue.y===12,'whole distance uses a compact two-line label');
+    const holeLabel=runs.find(r=>r.text==='WHOLE DISTANCE'),holeValue=runs.find(r=>r.x>holeLabel.x&&r.y===holeLabel.y&&r.text.endsWith(` ${units}`));
+    assert.ok(holeValue,'whole distance label and value share one line');
     assert.ok(runs.some(r=>r.y===holeValue.y&&r.text==='from top'),'drilling reference stays with its value');
     assert.ok(runs.some(r=>r.text==='Hinged / complete'));
   }
