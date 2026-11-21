@@ -37,14 +37,13 @@ test('only the exact workbook panel-width warning becomes advisory; calculations
  assert.equal(grouped.reduce((n,p)=>n+p.quantity,0),[wide,tpost].flatMap(o=>calculate(o).parts).reduce((n,p)=>n+p.quantity,0));
 });
 
-test('single, all-opening and combined PDFs download with readable custom-width notes',async()=>{
+test('single, all-opening and combined PDFs omit automatic review notes while retaining cut data',async()=>{
  for(const openings of [[wide],[tpost],job.openings])for(const combined of [false,true])for(const units of ['mm','in']){
   const response=await calculationHandler(post('pdf',{job:{...job,openings},combined,units}));
   assert.equal(response.status,200);
   assert.match(response.headers.get('content-type'),/application\/pdf/);
   const pdf=await PDFDocument.load(await response.arrayBuffer()),text=pdfText(pdf);
-  assert.match(text,/Custom panel width:/);
-  assert.equal((text.match(/Custom panel width:/g)||[]).length,openings.filter(o=>o!==ordinary).length);
+  assert.doesNotMatch(text,/Custom panel width:|Aluminum inserts:|Two-piece posts: confirm/);
   assert.match(text,/WHOLE DISTANCE/);
   if(!combined)assert.equal(pdf.getPageCount(),openings.length);
  }
