@@ -1,4 +1,4 @@
-import {slidingGeometry} from './sliding.js';
+import {slidingGeometry,slidingTiltPosition} from './sliding.js';
 
 export function slidingDrawing(o,{louverLayout}={}){
  const g=slidingGeometry(o),shapes=[],labels=[],left=22,top=28,width=214;
@@ -29,10 +29,14 @@ export function slidingDrawing(o,{louverLayout}={}){
  // Bird's-eye layout separates the tracks without inventing folding hinges.
  const trackTop=bottom+23,trackY={B:trackTop,M:trackTop+14,F:trackTop+(g.tracks-1)*14};
  for(const track of g.tracks===3?['B','M','F']:['B','F']){
-  labels.push({x:9,y:trackY[track]+3,text:track,size:7});
+  labels.push({x:9,y:trackY[track]+3,text:track,size:7,role:'track'});
   line([left,trackY[track]],[left+width,trackY[track]],'#ccc',.4);
  }
- for(const p of panels)rect(p.x,trackY[p.track]-2,p.w,4,'#555','#fff',.4,'track-panel');
+ for(const p of panels){
+  rect(p.x,trackY[p.track]-2,p.w,4,'#555','#fff',.4,'track-panel');
+  const position=slidingTiltPosition(o,p.number-1);
+  labels.push({x:p.x+p.w/2,y:trackY[p.track]-5,text:`${p.number} ${position[0]}`,size:6,role:'panel',panel:p.number,tiltPosition:position});
+ }
  // Visual seams only: same-track panels still meet at the exact same coordinate.
  for(let i=1;i<panels.length;i++)if(panels[i-1].track===panels[i].track){
   const p=panels[i];shapes.push({kind:'line',a:[p.x,trackY[p.track]-2],b:[p.x,trackY[p.track]+2],tone:'#fff',weight:1,role:'panel-separator'});
