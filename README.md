@@ -1,6 +1,16 @@
 # Cut Sheets
 
-A manufacturing app for standard and T-post Shutter Smart shutters. It includes saved jobs, opening duplication, fractional-inch or metric entry, opening diagrams, live part calculations, PDF previews, individual cut sheets, combined cutting lists, and JSON backup/restore.
+A manufacturing app for standard, T-post, bypass and tripass ShutterSmart shutters. It includes saved jobs, opening duplication, fractional-inch or metric entry, opening diagrams, live part calculations, PDF previews, individual cut sheets, combined cutting lists, and JSON backup/restore.
+
+## November 21 entry and sliding update
+
+ShutterSmart quote entry offers Step by step and All on one page modes, eighth-inch fraction buttons, and an opening list below the form. Standard and T-post entries default to Inside mount, Shutter size and flat outside stiles. Custom frame sides remain individually selectable. Confirmations apply after the first choice for that opening; pending autosaves cannot discard a confirmed choice.
+
+Bypass/tripass lines share the existing quote, order, draft, revision and employee-checklist workflow. Add Line repeats the selected construction without copying dimensions. The panel selector offers 2, 3, 4 and 6 panels; choosing a count selects two or three tracks as appropriate. Thin drawing seams distinguish same-track panels without introducing a physical gap.
+
+Sliding cuts use the original Standard Folding / No frame / No frame workbook path for one flat/flat panel, multiplied by the panel and unit counts. They do not use the workbook's SLIDER formulas. Each different-track joint adds 1.5 inches of overlap; same-track joints add zero. Outside mount adds 1.5 inches of wall coverage at each side; inside mount adds none. Equal panel width is `(entered width + both side overlaps + all joint overlaps) / panel count`. Both mounts use `panel height = entered height - 2.875 inches`, so 90 inches yields 87 1/8 inches. A workbook-driven height adjustment is reported and blocks release instead of silently changing that requested panel height. Existing standard/T-post source formulas are unchanged.
+
+The release checks include 269 automated tests and a browser check of mixed quote entry, panel-count changes, save/reload and autosave during confirmation. Sliding hardware fit and louver clearance still need a physical shop sample; automated geometry checks cannot verify track hardware. Generated screenshots and test PDFs stay in ignored `output/` and are not published.
 
 ## Run
 

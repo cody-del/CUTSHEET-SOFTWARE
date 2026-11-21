@@ -1,6 +1,9 @@
 import {frameShapes,frameSideStyles,frameDescription} from './frames.js';
+import {isSliding,slidingCode,slidingName,slidingGeometry} from './sliding.js';
+import {shutterMeasurementLabel} from './shuttersmart-inputs.js';
+import {slidingDrawing} from './sliding-drawing.js';
 // Shared folding geometry for the app, layout choices, and printed cut sheets.
-// T-posts divide independent hinge groups. No sliding/bypass layout is modeled.
+// T-posts divide independent hinge groups; sliding panels use separate geometry.
 export const STANDARD_LAYOUTS={
   1:[['1-0','L','1 left'],['0-1','R','1 right']],
   2:[['2-0','LL','2 left'],['1-1','LR','1 left, 1 right'],['0-2','RR','2 right']],
@@ -18,6 +21,7 @@ export const TPOST_LAYOUTS=[
   }))
 ];
 export function drawing(o,{louverLayout}={}){
+  if(isSliding(o))return slidingDrawing(o,{louverLayout});
   const shapes=[],left=22,top=28,width=214,height=Math.max(24,width*(o.height||60)/(o.width||48)),bottom=top+height;
   const line=(a,b,tone='#999',weight=.65)=>shapes.push({kind:'line',a,b,tone,weight});
   const polygon=(points,fill='#fff',tone='#777',weight=.8)=>shapes.push({kind:'polygon',points,fill,tone,weight});
@@ -90,9 +94,15 @@ export function drawing(o,{louverLayout}={}){
   return {width:260,height:bottom+Math.max(0,...leaves.map(l=>Math.max(l.d1,l.d2)))+36,shapes,leaves,posts,bounds:{left,top,width,height}};
 }
 export function drawingSVG(o,{thumbnail=false,widthLabel='',heightLabel='',louverLayout}={}){
+  if(isSliding(o)&&!thumbnail){
+    const g=slidingGeometry(o),unit=/\bmm\b/.test(widthLabel+' '+heightLabel)?'mm':'in';
+    widthLabel=(g.coverageWidth==null?'—':shutterMeasurementLabel(g.coverageWidth,unit))+' '+unit+' overall';
+    heightLabel=(g.panelHeight==null?'—':shutterMeasurementLabel(g.panelHeight,unit))+' '+unit+' panel';
+  }
   const d=drawing(o,{louverLayout}),f=n=>Number(n.toFixed(3)),point=p=>p.map(f).join(',');
   const paths=d.shapes.map(s=>s.kind==='polygon'?`<polygon points="${s.points.map(point).join(' ')}" fill="${s.fill}" stroke="${s.tone}" stroke-width="${s.weight}"/>`:`<line x1="${f(s.a[0])}" y1="${f(s.a[1])}" x2="${f(s.b[0])}" y2="${f(s.b[1])}" stroke="${s.tone}" stroke-width="${s.weight}"/>`).join('');
   const escape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const code=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
-  return `<svg class="${thumbnail?'layout-drawing':'diagram'}" viewBox="0 0 ${d.width} ${f(d.height)}" preserveAspectRatio="xMidYMid meet" ${thumbnail?'aria-hidden="true"':`role="img" aria-label="${escape(frameDescription(o))}; Folding layout ${escape(code)}; ${escape(widthLabel)} wide by ${escape(heightLabel)} tall${louverLayout?`; ${louverLayout.divided?`${louverLayout.top} louvers above, ${louverLayout.bottom} below`:`${louverLayout.total} louvers per panel`}`:''}"`}>${paths}${thumbnail?'':`<text x="130" y="13" text-anchor="middle" font-size="9" fill="#666">${escape(widthLabel)}</text><text x="250" y="${f(d.bounds.top+d.bounds.height/2)}" text-anchor="middle" font-size="9" fill="#666" transform="rotate(90 250 ${f(d.bounds.top+d.bounds.height/2)})">${escape(heightLabel)}</text><text x="130" y="${f(d.height-10)}" text-anchor="middle" font-size="9" fill="#555">${escape(code)}</text>`}</svg>`;
+  const code=isSliding(o)?slidingCode(o):o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
+  const labels=(d.labels||[]).map(l=>`<text x="${f(l.x)}" y="${f(l.y)}" font-size="${l.size}" text-anchor="middle" fill="#555">${escape(l.text)}</text>`).join('');
+  return `<svg class="${thumbnail?'layout-drawing':'diagram'}" viewBox="0 0 ${d.width} ${f(d.height)}" preserveAspectRatio="xMidYMid meet" ${thumbnail?'aria-hidden="true"':`role="img" aria-label="${escape(frameDescription(o))}; ${isSliding(o)?slidingName(o)+' closed layout':'Folding layout'} ${escape(code)}; ${escape(widthLabel)} wide by ${escape(heightLabel)} tall${louverLayout?`; ${louverLayout.divided?`${louverLayout.top} louvers above, ${louverLayout.bottom} below`:`${louverLayout.total} louvers per panel`}`:''}"`}>${paths}${labels}${thumbnail?'':`<text x="130" y="13" text-anchor="middle" font-size="9" fill="#666">${escape(widthLabel)}</text><text x="250" y="${f(d.bounds.top+d.bounds.height/2)}" text-anchor="middle" font-size="9" fill="#666" transform="rotate(90 250 ${f(d.bounds.top+d.bounds.height/2)})">${escape(heightLabel)}</text><text x="130" y="${f(d.height-10)}" text-anchor="middle" font-size="9" fill="#555">${escape(code)}</text>`}</svg>`;
 }

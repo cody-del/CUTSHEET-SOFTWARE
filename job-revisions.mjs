@@ -1,3 +1,4 @@
+import {isSliding,slidingName} from './public/sliding.js';
 import {createHash} from 'node:crypto';
 import {calculate,validateOpening,configuration} from './calculations.mjs';
 import {blockingWarnings} from './public/manufacturing-help.js';
@@ -11,7 +12,7 @@ const fail=(status,message)=>{throw new RevisionError(status,message);};
 const stable=v=>JSON.stringify(v,(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(k=>[k,value[k]])):value);
 const digest=v=>createHash('sha256').update(stable(v)).digest('hex');
 const currentView=({revisions,lastRevision,...job})=>job;
-const keys=['id','name','productId','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts'];
+const keys=['id','name','productId','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes','tposts','sliding'];
 function inputs(items){
  if(!Array.isArray(items)||!items.length||items.length>100)fail(400,'Keep between 1 and 100 openings on the cut sheet.');
  const seen=new Set();return items.map(raw=>{
@@ -31,7 +32,7 @@ function specifications(o){return {
  'Opening name':o.name,Width:o.width+' in',Height:o.height+' in',Quantity:String(o.quantity),
  Frame:frameDescription(o),'Frame arrangement':frameSetupLabel(o),Finish:({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],
  Louvers:o.louver+' in',Tilt:o.tilt,Stile:o.stile,Mount:o.mount==='I'?'Inside':'Outside',
- 'Measurement type':({S:'Shutter size',W:'Window opening size',F:'Outside frame size'})[o.sizeMethod],
+ 'Measurement type':isSliding(o)?slidingName(o)+' · height less 2 7/8 in':({S:'Shutter size',W:'Window opening size',F:'Outside frame size'})[o.sizeMethod],
  Layout:configuration(o),'T-posts':o.tposts?o.tposts.construction+'; '+o.tposts.positions.join(', ')+' in from left':'None',
  Divider:(o.divisionMode==='split'?'Split tilt rod':'Divider rail')+'; '+(o.divider||0)+' in from bottom'
 };}

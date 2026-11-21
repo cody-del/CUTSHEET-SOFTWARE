@@ -69,6 +69,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const tone=hex=>{const v=parseInt(hex.slice(1),16);return hex.length===4?rgb(((v>>8)&15)/15,((v>>4)&15)/15,(v&15)/15):rgb((v>>16)/255,((v>>8)&255)/255,(v&255)/255);};
     for(const s of scene.shapes){if(s.kind==='line')page.drawLine({start:{x:dx+s.a[0]*scale,y:dy-s.a[1]*scale},end:{x:dx+s.b[0]*scale,y:dy-s.b[1]*scale},thickness:s.weight*scale,color:tone(s.tone)});
       else page.drawSvgPath(s.points.map((p,i)=>`${i?'L':'M'} ${p[0]} ${p[1]}`).join(' ')+' Z',{x:dx,y:dy,scale,color:tone(s.fill),borderColor:tone(s.tone),borderWidth:s.weight});}
+    for(const label of scene.labels||[])text(label.text,dx+label.x*scale,dy-label.y*scale,label.size*scale,regular,muted);
     wrap(louverSummary(result),w,8).forEach((l,i)=>text(l,x+(w-regular.widthOfTextAtSize(ascii(l),8))/2,top-h-5-i*10,8,regular,muted));
   }
   function tableColumns(w,small,isCombined){
@@ -233,7 +234,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     y-=5;
     if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}. Sections numbered left to right.`);
     if(o.divider)paragraph(`${o.divisionMode==='split'?'Split':'Divider'} input from bottom: ${length(o.divider*25.4)} ${units}.`);
-    const machining=[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')],...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
+    const machining=[...(result.hinges.length?[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')]]:[]),...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
     const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12};
     const paragraphHeight=(value,size=8.5)=>wrap(value,width,size).length*(size+4)+3;
     const remaining=16+factsLayout(machining,machiningOptions).height+3+(o.notes?paragraphHeight(`Shop notes: ${o.notes}`):0)+completionLayout([o]).height+12;

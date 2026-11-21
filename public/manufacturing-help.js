@@ -4,7 +4,7 @@ export const isPanelWidthWarning=message=>/^TOO WIDE PANEL(?:\s*!)*$/.test(Strin
 export const blockingWarnings=result=>(result?.warnings||[]).filter(message=>!isPanelWidthWarning(message));
 export const panelWidthNotes=result=>(result?.warnings||[]).some(isPanelWidthWarning)?['Custom panel width: exceeds the workbook\'s standard panel-width limit.']:[];
 export function manufacturingMessage(message){
- return String(message).replace(/WRONG MOUNT OPTION OR FRAME(?:\s*!)*/g,'This frame is not supported with the selected mount. Review Frame style and Mount.');
+ return String(message).replace(/WRONG MOUNT OPTION OR FRAME(?:\s*!)*/g,'This frame is not supported with the selected mount. Review Frame style.');
 }
 export function manufacturingField(message){
  if(/custom setup|sill cuts|side selections/i.test(message))return 'sides';

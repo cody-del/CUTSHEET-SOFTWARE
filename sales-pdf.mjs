@@ -1,3 +1,4 @@
+import {isSliding,slidingName,slidingCode} from './public/sliding.js';
 import {orderFinancials} from './public/order-finance.js';
 import {productName,productId,lineProduct,isManufacturingLine} from './public/products.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
@@ -91,8 +92,8 @@ export async function createSalesPDF({record:q,contact:c,totals:t,company={}},ki
   const priced=t.lines.find(l=>l.openingId===o.id),details=[];
   details.push(productName(lineProduct(o,q)),`${productId(lineProduct(o,q))===EWF_ID?ewfMeasurement(o.width):o.width}" W x ${productId(lineProduct(o,q))===EWF_ID?ewfMeasurement(o.height):o.height}" H`);
   if(isManufacturingLine(o,q)){
-   const config=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' / T / '):'L'.repeat(o.left)+'R'.repeat(o.right);
-   const frameSides=['3W','3D'].includes(o.sides)?'3-sided frame':['4S','CW'].includes(o.sides)?'':frameSetupLabel(o);
+   const config=isSliding(o)?slidingName(o)+' · '+slidingCode(o):o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' / T / '):'L'.repeat(o.left)+'R'.repeat(o.right);
+   const frameSides=isSliding(o)?'':['3W','3D'].includes(o.sides)?'3-sided frame':['4S','CW'].includes(o.sides)?'':frameSetupLabel(o);
    details.push([frameDescription(o),o.mount==='I'?'Inside mount':'Outside mount',frameSides].filter(Boolean).join(' / '));
    details.push([({W:'White',OW:'Off-white',SC:'Swiss coffee'})[o.color],o.louver+'" louvers',o.tilt==='Smart'?'Smart View':o.tilt+' tilt',config].filter(Boolean).join(' / '));
    if(o.divider)details.push('Divider rail: '+o.divider+'"');
