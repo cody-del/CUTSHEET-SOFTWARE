@@ -1,5 +1,6 @@
 import {frameDescription,frameSetupLabel} from './frames.js';
 import {panelWidthNotes} from './manufacturing-help.js';
+import {isSliding,slidingGeometry,slidingName,slidingCode} from './sliding.js';
 
 export function firstLouverHole(result){
   const value=result?.machining?.find(m=>m.label==='First louver hole from stile top')?.value;
@@ -11,6 +12,19 @@ export const louverSummary=result=>{
   return !l?'':l.divided?`${l.top} above, ${l.bottom} below per panel`:`${l.total} louvers per panel`;
 };
 export function cutSheetFacts(o,result,{measurement=String,length=n=>n.toFixed(2),inputUnits='in',units='mm'}={}){
+  if(isSliding(o)){
+    const g=slidingGeometry(o);
+    return [
+      ['Entered width × height',`${measurement(o.width)} × ${measurement(o.height)} ${inputUnits}`],
+      ['Quantity & layout',`${o.quantity} ${o.quantity===1?'unit':'units'} · ${g.count} panels each · ${slidingCode(o)}`],
+      ['Each panel · no frame',`${length(g.panelWidth*25.4)} × ${length(g.panelHeight*25.4)} ${units}`],
+      ['Mount & overlap',`${o.mount==='I'?'Inside · no wall overlap':'Outside · 1 1/2 in each wall'} · 1 1/2 in between tracks`],
+      ['Finish & louvers',`${{W:'White',OW:'Off-white',SC:'Swiss coffee'}[o.color]} · ${o.louver} in`],
+      ['Tilt',`${o.tilt==='Smart'?'Smart View':o.tilt+' tilt'}${o.divisionMode==='split'?' · split rod':''}`],
+      ['Measurement type',`${slidingName(o)} · height less 2 7/8 in`],
+      ['Light gap',Number.isFinite(result?.gap)?`${length(result.gap)} ${units}`:'—']
+    ];
+  }
   const layout=o.tposts?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
   return [
     ['Width × height',`${measurement(o.width)} × ${measurement(o.height)} ${inputUnits}`],

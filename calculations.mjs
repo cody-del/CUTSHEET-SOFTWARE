@@ -1,11 +1,12 @@
 import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {blockingWarnings} from './public/manufacturing-help.js';
 import {FRAME_STYLES,FRAME_EDGES,frameStyle,frameNotice,frameCuttingPlan,normalizeFrame} from './public/frames.js';
+import {isSliding,slidingGeometry,slidingCode,slidingDimensionError} from './public/sliding.js';
 import workbook from './source/workbook.json' with {type:'json'};
 import {WorkbookEngine} from './engine.mjs';
 export const VERSION='20170211FCNew / app 0.5';
-export const FRAMES={ST:'Standard',DS:'Designer',EX:'Extended',ZF:'Z-frame',TR:'Trim frame',HS:'Hanging strip'};
-export const SCOPE='Standard and T-post Shutter Smart shutters, 3 or 4 inch louvers. Manufacturing validation pending.';
+export const FRAMES={ST:'Standard',DS:'Designer',EX:'Extended',ZF:'Z-frame',TR:'Trim frame',HS:'Hanging strip',NF:'No frame'};
+export const SCOPE='Standard, T-post, bypass and tripass Shutter Smart shutters, 3 or 4 inch louvers.';
 export const SOURCE_URL='https://docs.google.com/spreadsheets/d/1FGIwG2DLI-5FSbQ9KTH9_tn0t5dYAbkG/edit';
 export class ValidationError extends Error {}
 export function lightGapWarning(gap){
@@ -18,8 +19,8 @@ export function lightGapWarning(gap){
 const clean=v=>String(v??'').trim().replace(/\s+/g,' ');
 const numeric=(v,name,min,max,integer=false)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<min||v>max||integer&&!Number.isInteger(v))throw new ValidationError(`${name} must be ${integer?'a whole number ':''}between ${min} and ${max}.`);return v;};
 export const hasTposts=o=>o?.tposts!=null;
-export const panelCount=o=>hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.left+s.right,0):o.left+o.right;
-export const configuration=o=>hasTposts(o)?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
+export const panelCount=o=>isSliding(o)?slidingGeometry(o).count:hasTposts(o)?o.tposts.sections.reduce((n,s)=>n+s.left+s.right,0):o.left+o.right;
+export const configuration=o=>isSliding(o)?slidingCode(o):hasTposts(o)?o.tposts.sections.map(s=>'L'.repeat(s.left)+'R'.repeat(s.right)).join(' | T | '):'L'.repeat(o.left)+'R'.repeat(o.right);
 export const completeOpening=o=>Number.isFinite(o?.width)&&Number.isFinite(o?.height)&&(!o.tposts||o.tposts.positions.every(Number.isFinite));
 export function validateOpening(o,{allowIncomplete=false,shutterSizeOnly=false}={}){
   o=normalizeFrame(o);
@@ -29,8 +30,14 @@ export function validateOpening(o,{allowIncomplete=false,shutterSizeOnly=false}=
     if(o.sizeMethod!=null&&o.sizeMethod!=='S')throw new ValidationError('ShutterSmart uses Shutter size for inside and outside mounts. Reload the editor before saving.');
     o={...o,sizeMethod:'S'};
   }
-  if(!allowIncomplete||o.width!=null)numeric(o.width,'Width (inches)',1,hasTposts(o)?Number.MAX_SAFE_INTEGER:106);
-  if(!allowIncomplete||o.height!=null)numeric(o.height,'Height (inches)',1,114);
+  if(isSliding(o)){
+    if(typeof o.sliding!=='object'||Array.isArray(o.sliding)||Object.keys(o.sliding).some(k=>!['version','layout'].includes(k)))throw new ValidationError('Invalid sliding configuration.');
+    try{slidingGeometry(o);}catch(e){throw new ValidationError(e.message);}
+    if(hasTposts(o)||o.frame!=='NF'||o.sides!=='NF'||o.frameStyle!==undefined||o.frameSides!==undefined||o.stile!=='Flat'||o.left!==1||o.right!==0||o.sizeMethod!=='S')throw new ValidationError('Bypass and tripass use flat stiles, Standard Folding, No frame / No frame and calculated panel sizes.');
+  }
+  if(!allowIncomplete||o.width!=null)numeric(o.width,'Width (inches)',1,isSliding(o)?636:hasTposts(o)?Number.MAX_SAFE_INTEGER:106);
+  if(!allowIncomplete||o.height!=null)numeric(o.height,'Height (inches)',1,isSliding(o)?116.875:114);
+  if(isSliding(o))for(const key of ['width','height']){const problem=slidingDimensionError(o,key,o[key]);if(problem)throw new ValidationError(problem);}
   numeric(o.quantity,'Quantity',1,100,true);
   if(hasTposts(o)){
     const t=o.tposts;
@@ -56,15 +63,16 @@ export function validateOpening(o,{allowIncomplete=false,shutterSizeOnly=false}=
   }
   if(o.frameStyle!==undefined&&(!FRAME_STYLES.some(f=>f.id===o.frameStyle)||(frameStyle(o).profile&&frameStyle(o).profile!==o.frame)))throw new ValidationError('Choose a valid frame style matching the cutting profile.');
   if(!Object.hasOwn(FRAMES,o.frame))throw new ValidationError('Choose a supported frame.');
+  if(o.frame==='NF'&&!isSliding(o))throw new ValidationError('No frame is available for bypass and tripass panels.');
   if(![3,4].includes(o.louver))throw new ValidationError('Choose 3 or 4 inch louvers.');
-  for(const [key,allowed]of Object.entries({mount:['I','O'],sizeMethod:['W','S','F'],sides:['4W','4S','CW','3W','3D'],color:['W','OW','SC'],tilt:['Smart','Front','Back'],stile:['Flat','Reg']}))if(!allowed.includes(o[key]))throw new ValidationError(`Invalid ${key}.`);
+  for(const [key,allowed]of Object.entries({mount:['I','O'],sizeMethod:['W','S','F'],sides:isSliding(o)?['NF']:['4W','4S','CW','3W','3D'],color:['W','OW','SC'],tilt:['Smart','Front','Back'],stile:['Flat','Reg']}))if(!allowed.includes(o[key]))throw new ValidationError(`Invalid ${key}.`);
   if(o.sides==='CW'||o.frameSides!==undefined){
     if(!o.frameSides||typeof o.frameSides!=='object'||Array.isArray(o.frameSides)||Object.keys(o.frameSides).length!==4||FRAME_EDGES.some(side=>!FRAME_STYLES.some(f=>f.available!==false&&f.id===o.frameSides[side])))throw new ValidationError('Choose a frame for the top, bottom, left and right sides.');
   }
   if(o.sizeMethod==='F'&&o.mount!=='O')throw new ValidationError('Outside frame measurements require an outside mount.');
   if(o.divisionMode!==undefined&&!['divider','split'].includes(o.divisionMode))throw new ValidationError('Choose divider rail or split tilt rod mode.');
   numeric(o.divider??0,'Divider position',0,o.height??Number.MAX_SAFE_INTEGER);
-  if(o.height!=null&&o.divider>=o.height)throw new ValidationError('The divider must be below the top of the opening.');
+  if(o.height!=null&&o.divider>=(isSliding(o)?slidingGeometry(o).panelHeight:o.height))throw new ValidationError('The divider must be below the top of the panel.');
   if(clean(o.name).length>80||clean(o.notes).length>1200)throw new ValidationError('Opening name or notes are too long.');
   return o;
 }
@@ -96,10 +104,14 @@ function louverLayout(o,e){
 }
 export function calculate(o){
   o=validateOpening(o);
+  if(isSliding(o))return calculateSliding(o);
   const frameWarning=frameNotice(o)||frameCuttingPlan(o).warning;
   if(frameWarning)return {parts:[],hinges:[],machining:[],warnings:[frameWarning],reviewNotes:[],version:VERSION,status:'preview-only'};
   const e=openingEngine(o);
   if(hasTposts(o))return calculateTposts(o,e);
+  return calculateStandard(o,e);
+}
+function calculateStandard(o,e){
   const p=c=>e.cell('PRINT SHEET',c),warnings=[];
   for(const c of ['A12','B12','A13','B13','A14','A15']){const v=e.cell('CALCULATION (2)',c);if(typeof v==='string'&&clean(v))warnings.push(clean(v));}
   const extra=e.cell('DATA ENTRY  ','A24');if(typeof extra==='string'&&clean(extra))warnings.push(clean(extra));
@@ -126,6 +138,28 @@ export function calculate(o){
   const louvers=louverLayout(o,e),gap=p('L9'),gapWarning=lightGapWarning(gap);
   if(gapWarning)warnings.push(gapWarning);
   return {parts,hinges,machining,panelWidth,panelHeight,louversPerPanel:louvers.total,louverLayout:louvers,gap,lightGapWarning:gapWarning,warnings:[...new Set(warnings)],reviewNotes,version:VERSION,status:'validation-draft',review:'Compare with a trusted completed cut sheet before cutting.',traceCount:e.cache.size};
+}
+function calculateSliding(o){
+  const geometry=slidingGeometry(o);
+  // Calculate ONE independent, flat/flat panel. Never let the workbook's
+  // folding-panel spacing, rabbeted meeting stiles or SLIDER formulas alter it.
+  // NF's workbook mount is I. The actual installation mount has already been
+  // applied to the finished panel width above; it must not add another allowance.
+  const panel={...o,width:geometry.panelWidth,height:geometry.panelHeight,quantity:1,mount:'I',left:1,right:0};
+  delete panel.sliding;
+  const result=calculateStandard(panel,openingEngine(panel));
+  if(result.parts.some(p=>/frame|regular|T-post/.test(p.name)))throw new ValidationError('The no-frame workbook returned an unexpected framed or meeting-stile part.');
+  result.parts=result.parts.map(p=>({...p,perUnit:p.quantity*geometry.count,quantity:p.quantity*geometry.count*o.quantity}));
+  // The standard summary adds one regular stile even for flat/flat NF panels.
+  // The NF component cuts already use two flat stiles; report their input width.
+  result.panelWidth=geometry.panelWidth*25.4;
+  result.hinges=[];
+  result.sliding=geometry;
+  result.requestedPanelHeight=geometry.panelHeight*25.4;
+  if(Math.abs(result.panelHeight-result.requestedPanelHeight)>1e-7){
+    result.warnings.push('The workbook adjusted this panel height. Choose a height and louver setup that preserves the entered height minus 2 7/8 inches before cutting.');
+  }
+  return result;
 }
 function calculateTposts(o,e){
   const p=c=>e.cell('T Post Cutsheet',c),warnings=[],reviewNotes=[],parts=[],machining=[];

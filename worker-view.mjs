@@ -12,6 +12,7 @@ function lineView(line){
 function openingView(opening){
  const input=pick(opening.input,['id','name','productId','width','height','quantity','left','right','louver','frame','frameStyle','frameSides','sides','mount','sizeMethod','color','tilt','stile','divider','divisionMode','notes']);
  if(opening.input.tposts)input.tposts=postView(opening.input.tposts);
+ if(opening.input.sliding)input.sliding=pick(opening.input.sliding,['version','layout']);
  if(input.frameSides)input.frameSides=pick(input.frameSides,['top','bottom','left','right']);
  const result=pick(opening.result,['hinges','panelWidth','panelHeight','louversPerPanel','gap','lightGapWarning','warnings','reviewNotes','version','status']);
  result.parts=(opening.result.parts||[]).map(partView);
@@ -19,6 +20,7 @@ function openingView(opening){
  if(opening.result.louverLayout)result.louverLayout=pick(opening.result.louverLayout,['bottom','top','middle','total','divided','bottomHeight','topHeight','middleHeight','dividerFromBottom','panelHeight']);
  if(opening.result.sections)result.sections=opening.result.sections.map(s=>pick(s,['number','left','right','start','end','railLength','louverLength','louverQuantity']));
  if(opening.result.tposts)result.tposts=postView(opening.result.tposts);
+ if(opening.result.sliding){result.sliding=pick(opening.result.sliding,['layout','count','tracks','overlap','overlapCount','sideOverlap','heightDeduction','coverageWidth','panelWidth','panelHeight']);result.requestedPanelHeight=opening.result.requestedPanelHeight;}
  return {input,result,lines:opening.lines.map(lineView),production:checks(opening.production),...pick(opening,['productionCompletedAt'])};
 }
 function readinessView(value){return value?{...pick(value,['status','label']),issues:(value.issues||[]).map(i=>pick(i,['openingId','openingName','message']))}:undefined;}

@@ -1,5 +1,5 @@
 /* One owner workspace, shared by every section. */
-.owner-workspace{--workspace-sidebar:208px;background:#fff}
+.owner-workspace{--workspace-sidebar:208px;--workspace-charcoal:#292b2d;--workspace-charcoal-hover:#3c3f42;background:#fff}
 .workspace-nav{position:fixed;inset:0 auto 0 0;width:var(--workspace-sidebar);display:flex;flex-direction:column;padding:28px 16px 20px;border-right:1px solid #e7e7e7;background:#fafafa;z-index:30}
 .workspace-brand{display:flex;align-items:center;gap:10px;min-height:42px;margin:0 10px 35px;font-size:calc(20px + var(--text-size-increase, 0pt));font-weight:700;text-decoration:none;color:#171717;letter-spacing:-.6px}
 .workspace-brand:has(img){justify-content:center;margin:0 0 24px;min-height:128px}
@@ -205,3 +205,15 @@
 @media(max-width:600px){.workspace-row{align-items:flex-start;flex-direction:column;gap:10px}.workspace-row>span{text-align:left}}
 
 .backup-status{padding:16px;margin:16px 0;background:#f3f5f3;border-radius:6px}.backup-status.needs-attention{background:#fff5ce}.backup-status p{margin:0 0 8px}.backup-status small{display:block}.backup-status label{display:block;max-width:360px;margin:16px 0 12px}.backup-status select{display:block;width:100%;margin-top:6px}
+
+/* Shared charcoal navigation and action color. */
+.workspace-nav{background:var(--workspace-charcoal);border-color:var(--workspace-charcoal);color:#fff}
+.workspace-nav .workspace-brand,.workspace-nav nav a,.workspace-nav-foot a,.workspace-nav-heading .workspace-nav-toggle{color:#fff}
+.workspace-nav nav a:hover,.workspace-nav-heading .workspace-nav-toggle:hover{background:var(--workspace-charcoal-hover);color:#fff}
+.workspace-nav nav a.selected{background:#45484b;color:#fff;box-shadow:inset 3px 0 0 #fff}
+.workspace-nav-foot{border-color:#606367}
+.workspace-nav-foot span{color:#d3d5d7}
+.workspace-nav :is(a,button):focus-visible{outline-color:#fff;outline-offset:3px}
+.owner-workspace .btn{border-color:#777;color:var(--workspace-charcoal)}
+.owner-workspace .btn.primary,.owner-workspace .order-action-list>.btn{background:var(--workspace-charcoal);border-color:var(--workspace-charcoal);color:#fff}
+.owner-workspace .btn.primary:hover,.owner-workspace .order-action-list>.btn:hover{background:var(--workspace-charcoal-hover);border-color:var(--workspace-charcoal-hover);color:#fff}

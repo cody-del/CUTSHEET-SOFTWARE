@@ -11,15 +11,17 @@ export const FRAME_STYLES=[
 ];
 // Retain the identity of older saved EX openings without offering it for new choices.
 const legacyExtended={id:'EX',name:'Extended frame (legacy)',profile:'EX',bands:[10,7,2]};
-export const frameStyle=o=>FRAME_STYLES.find(f=>f.id===(o.frameStyle||o.frame))||(o.frame==='EX'?legacyExtended:FRAME_STYLES[0]);
+const noFrame={id:'NF',name:'No frame',profile:'NF',bands:[]};
+export const frameStyle=o=>FRAME_STYLES.find(f=>f.id===(o.frameStyle||o.frame))||(o.frame==='NF'?noFrame:o.frame==='EX'?legacyExtended:FRAME_STYLES[0]);
 // Older preview-only records may have a different fallback profile. Resolve only
 // these confirmed aliases, leaving unsupported or mismatched canonical styles invalid.
 export function normalizeFrame(o){const profile={MS:'ST',MZ:'ZF',EL:'ZF'}[o?.frameStyle];return profile?{...o,frame:profile}:o;}
 export const frameNotice=o=>frameStyle(o).profile?'':`${frameStyle(o).name}: visual preview only. Cutting deductions still need confirmation before a cut sheet can be generated.`;
 export const FRAME_EDGES=['top','bottom','left','right'];
 export const FRAME_SETUPS={'4W':'Same frame on all four sides','4S':'Standard (L) frame on bottom',CW:'Custom · choose each side'};
-export const frameSetupLabel=o=>FRAME_SETUPS[o.sides]||({'3W':'3 sides · saved window setup','3D':'3 sides · saved door setup'}[o.sides]||o.sides);
+export const frameSetupLabel=o=>o.sides==='NF'?'No frame':FRAME_SETUPS[o.sides]||({'3W':'3 sides · saved window setup','3D':'3 sides · saved door setup'}[o.sides]||o.sides);
 export function frameSideStyles(o){
+ if(o.frame==='NF')return Object.fromEntries(FRAME_EDGES.map(side=>[side,null]));
  const selected=frameStyle(o);
  return Object.fromEntries(FRAME_EDGES.map(side=>[side,o.sides==='CW'?FRAME_STYLES.find(f=>f.id===o.frameSides?.[side])||selected:o.sides==='4S'&&side==='bottom'?FRAME_STYLES[0]:side==='bottom'&&['3W','3D'].includes(o.sides)?null:selected]));
 }
@@ -38,6 +40,7 @@ export function frameCuttingPlan(o){
 // Standard profiles have a plain square face. Decorative profiles retain moulding.
 // Three-sided frames omit the sill in either construction.
 export function frameShapes(o,{left,top,width,height}){
+ if(o.frame==='NF')return [];
  if(['CW','4S'].includes(o.sides))return Object.entries(frameSideStyles(o)).flatMap(([side,style])=>frameShapes({frame:style.profile,frameStyle:style.id,sides:'4W'},{left,top,width,height}).filter(shape=>shape.side===side));
  const style=frameStyle(o),shapes=[],right=left+width,bottom=top+height,three=o.sides==='3W'||o.sides==='3D';
  if(style.square){

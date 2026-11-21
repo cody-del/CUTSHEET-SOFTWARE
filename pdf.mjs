@@ -1,7 +1,7 @@
 import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {blockingWarnings} from './public/manufacturing-help.js';
 import {drawing} from './public/layouts.js';
-import {cutSheetFacts,cutSheetNotes,louverSummary,machiningLabel,firstLouverHole} from './public/cut-sheet.js';
+import {cutSheetFacts,louverSummary,machiningLabel,firstLouverHole} from './public/cut-sheet.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {calculate,combinedParts,ValidationError,configuration} from './calculations.mjs';
 const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
@@ -69,6 +69,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const tone=hex=>{const v=parseInt(hex.slice(1),16);return hex.length===4?rgb(((v>>8)&15)/15,((v>>4)&15)/15,(v&15)/15):rgb((v>>16)/255,((v>>8)&255)/255,(v&255)/255);};
     for(const s of scene.shapes){if(s.kind==='line')page.drawLine({start:{x:dx+s.a[0]*scale,y:dy-s.a[1]*scale},end:{x:dx+s.b[0]*scale,y:dy-s.b[1]*scale},thickness:s.weight*scale,color:tone(s.tone)});
       else page.drawSvgPath(s.points.map((p,i)=>`${i?'L':'M'} ${p[0]} ${p[1]}`).join(' ')+' Z',{x:dx,y:dy,scale,color:tone(s.fill),borderColor:tone(s.tone),borderWidth:s.weight});}
+    for(const label of scene.labels||[])text(label.text,dx+label.x*scale,dy-label.y*scale,label.size*scale,regular,muted);
     wrap(louverSummary(result),w,8).forEach((l,i)=>text(l,x+(w-regular.widthOfTextAtSize(ascii(l),8))/2,top-h-5-i*10,8,regular,muted));
   }
   function tableColumns(w,small,isCombined){
@@ -86,7 +87,16 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   }
   function rowData(p,w,small,isCombined=false,scale=1,compact=false){
     const c=tableColumns(w,small,isCombined),title=p.name.replace(' · ',' ')+(p.section?` - Section ${p.section}`:''),nameSize=(small?8:9)*scale,profileSize=7*scale,valueSize=(small?9:10)*scale;
-    const holeBox=p.name.startsWith('Stile')?{width:Math.min(c.name,106),height:26,stacked:small||isCombined,value:Number.isFinite(p.wholeDistance)?length(p.wholeDistance)+' '+units:'Not available'}:null;
+    let holeBox=null;
+    if(p.name.startsWith('Stile')){
+      const value=Number.isFinite(p.wholeDistance)?length(p.wholeDistance)+' '+units:'Not available';
+      const labelSize=7.5,valueSize=9.5,referenceSize=6.5;
+      const contentWidth=bold.widthOfTextAtSize('WHOLE DISTANCE',labelSize)+7+bold.widthOfTextAtSize(value,valueSize)+6+regular.widthOfTextAtSize('from top',referenceSize);
+      // In two-column lists, put the single-line datum below the part/profile;
+      // quantities and cut marks remain above it in their own columns.
+      const available=isCombined?c.name:small?w-14:c.name-72,fit=Math.min(1,(available-12)/contentWidth);
+      holeBox={width:contentWidth*fit+12,height:18,stacked:small||isCombined,value,labelSize:labelSize*fit,valueSize:valueSize*fit,referenceSize:referenceSize*fit,gap:fit};
+    }
     const nameWidth=holeBox&&!holeBox.stacked?c.name-holeBox.width-10:c.name;
     const inlineProfile=(small||compact)&&!holeBox&&bold.widthOfTextAtSize(ascii(title),nameSize)+8+regular.widthOfTextAtSize(ascii(p.profile),profileSize)<=nameWidth;
     const name=wrap(title,nameWidth,nameSize,bold),profile=inlineProfile?[]:wrap(p.profile,nameWidth,profileSize);
@@ -105,9 +115,10 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     if(holeBox){
       const xx=holeBox.stacked?x+7:x+7+c.name-holeBox.width,boxTop=holeBox.stacked?yy+profileSize-2:top-(height-holeBox.height)/2;
       page.drawRectangle({x:xx,y:boxTop-holeBox.height,width:holeBox.width,height:holeBox.height,color:white,borderColor:ink,borderWidth:1});
-      text('WHOLE DISTANCE',xx+6,boxTop-9,7.5,bold);
-      text(holeBox.value,xx+6,boxTop-21,10,bold);
-      text('from top',xx+holeBox.width-32,boxTop-21,6.5);
+      const baseline=boxTop-12,valueX=xx+6+bold.widthOfTextAtSize('WHOLE DISTANCE',holeBox.labelSize)+7*holeBox.gap;
+      text('WHOLE DISTANCE',xx+6,baseline,holeBox.labelSize,bold);
+      text(holeBox.value,valueX,baseline,holeBox.valueSize,bold);
+      text('from top',valueX+bold.widthOfTextAtSize(holeBox.value,holeBox.valueSize)+6*holeBox.gap,baseline,holeBox.referenceSize);
     }
     const center=top-height/2,topAligned=isCombined||holeBox?.stacked,numberY=topAligned?top-14:center-valueSize*.3;
     text(p.quantity,x+c.qty,numberY,valueSize,bold);text(length(p.length),x+c.cut,numberY,valueSize,bold);
@@ -207,7 +218,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const parts=[...grouped.filter(p=>!p.name.startsWith('Stile')),...stiles].sort((a,b)=>a.name.localeCompare(b.name)||b.length-a.length);
     partTables(parts.map(p=>({...p,profile:`${COLORS[p.color]}   ${p.profile}`})),true);
     for(const {o,result}of results){
-      const notes=[o.divisionMode==='split'?'Split tilt-rod mode':'',Number.isFinite(result.gap)?`Light gap ${length(result.gap)} ${units}`:'',o.tposts?`${configuration(o)}; post centerlines ${o.tposts.positions.map(v=>length(v*25.4)).join(', ')} ${units}`:'',...cutSheetNotes(result),o.notes].filter(Boolean);
+      const notes=[o.divisionMode==='split'?'Split tilt-rod mode':'',Number.isFinite(result.gap)?`Light gap ${length(result.gap)} ${units}`:'',o.tposts?`${configuration(o)}; post centerlines ${o.tposts.positions.map(v=>length(v*25.4)).join(', ')} ${units}`:'',o.notes].filter(Boolean);
       if(notes.length)paragraph(`${o.name}: ${notes.join('. ')}`);
     }
     completionChecklist(job.openings);
@@ -223,17 +234,17 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     y-=5;
     if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}. Sections numbered left to right.`);
     if(o.divider)paragraph(`${o.divisionMode==='split'?'Split':'Divider'} input from bottom: ${length(o.divider*25.4)} ${units}.`);
-    const machining=[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')],...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
-    const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12},notes=cutSheetNotes(result);
+    const machining=[...(result.hinges.length?[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')]]:[]),...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
+    const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12};
     const paragraphHeight=(value,size=8.5)=>wrap(value,width,size).length*(size+4)+3;
-    const remaining=16+factsLayout(machining,machiningOptions).height+3+notes.reduce((sum,note)=>sum+paragraphHeight(note,8),0)+(o.notes?paragraphHeight(`Shop notes: ${o.notes}`):0)+completionLayout([o]).height+12;
+    const remaining=16+factsLayout(machining,machiningOptions).height+3+(o.notes?paragraphHeight(`Shop notes: ${o.notes}`):0)+completionLayout([o]).height+12;
     // Reorder the printed T-post list only; retain every section's own size and quantity.
     const printedParts=result.parts.map(p=>({...p,wholeDistance:firstHole}));
     if(o.tposts)printedParts.sort((a,b)=>partRank(a)-partRank(b)||(a.section||0)-(b.section||0));
     partTables(printedParts,false,y-floor-remaining);
     ensure(48,'Machining continued');text(`MACHINING (${units})`,margin,y-8,8,bold);y-=16;
     facts(machining,machiningOptions);
-    y-=3;for(const note of notes)paragraph(note,{size:8});
+    y-=3;
     if(o.notes)paragraph(`Shop notes: ${o.notes}`);
     completionChecklist([o]);
   }
