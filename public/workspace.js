@@ -82,7 +82,7 @@ function settings(){
    <h2>Measurements & printing</h2><p>Unit preferences save automatically on this browser.</p>
    <div class="settings-fields">
     <div class="field"><label for="input-unit">Input measurements</label><select id="input-unit">${[['in','Inches · decimals or fractions'],['mm','Millimeters']].map(([v,l])=>`<option value="${v}" ${prefs.units===v?'selected':''}>${l}</option>`).join('')}</select></div>
-    <div class="field"><label for="output-unit">Cut sheet dimensions</label><select id="output-unit">${[['mm','Millimeters · 2 decimals'],['in','Decimal inches · 4 decimals']].map(([v,l])=>`<option value="${v}" ${prefs.outputUnits===v?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="field"><label for="output-unit">Cut sheet dimensions</label><select id="output-unit">${[['mm','Millimeters'],['in','Decimal inches · 4 decimals']].map(([v,l])=>`<option value="${v}" ${prefs.outputUnits===v?'selected':''}>${l}</option>`).join('')}</select></div>
    </div>
    <p class="settings-print-note">US Letter · portrait · one opening per page.<br>Cut lengths do not include saw-kerf allowance.</p>
   </section>
