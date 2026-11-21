@@ -12,6 +12,21 @@ export const isSliding=o=>o?.sliding!=null;
 export const slidingKind=o=>o.sliding?.layout?.includes('M')?'tripass':'bypass';
 export const slidingName=o=>slidingKind(o)==='tripass'?'Tripass':'Bypass';
 export const slidingCode=o=>[...(o.sliding?.layout||'')].join(' · ');
+export const SLIDING_TILT_SIDES={2:'LR',3:'LRR',4:'LLRR',6:'LLLRRR'};
+// Panel order is left to right, viewed from inside the room. Track depth does
+// not reverse the handing. Front rods retain their centered placement.
+export function slidingTiltPosition(o,index){
+  if(o.tilt==='Front')return 'Center';
+  if(o.tilt==='Smart')return 'Internal';
+  return SLIDING_TILT_SIDES[o.sliding.layout.length][index]==='L'?'Left':'Right';
+}
+export function slidingPanelSchedule(o,result){
+  const g=slidingGeometry(o);
+  return g.panels.map(p=>({number:p.number,track:p.track,
+    width:Number.isFinite(result?.panelWidth)?result.panelWidth:g.panelWidth==null?null:g.panelWidth*25.4,
+    height:Number.isFinite(result?.panelHeight)?result.panelHeight:g.panelHeight==null?null:g.panelHeight*25.4,
+    quantity:o.quantity,tiltPosition:slidingTiltPosition(o,p.number-1)}));
+}
 export function slidingGeometry(o){
   const layout=o.sliding?.layout;
   if(o.sliding?.version!==1||!Object.values(SLIDING_LAYOUTS).some(list=>list.includes(layout)))throw Error('Choose a supported bypass or tripass layout.');

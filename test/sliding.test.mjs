@@ -5,7 +5,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {calculate,validateOpening} from '../calculations.mjs';
-import {SLIDING_LAYOUTS,slidingGeometry,setSliding} from '../public/sliding.js';
+import {SLIDING_LAYOUTS,slidingGeometry,setSliding,slidingPanelSchedule} from '../public/sliding.js';
+import {slidingPanelTable} from '../public/sliding-panels.js';
 import {blockingWarnings} from '../public/manufacturing-help.js';
 import {drawing,drawingSVG} from '../public/layouts.js';
 import {cutSheetFacts} from '../public/cut-sheet.js';
@@ -61,7 +62,7 @@ test('new quote lines repeat sliding choices without carrying measurements or do
 test('previews draw the real number of panels, tracks, louvers and inset dividers',()=>{
  for(const layout of ['FB','FMB','FFBB','FFMMBB']){
   const o=panel(layout,{tilt:'Front',divider:40}),r=calculate(o),scene=drawing(o,{louverLayout:r.louverLayout});
-  assert.equal(scene.leaves.length,layout.length);assert.equal(scene.posts.length,0);assert.equal(scene.labels.length,layout.includes('M')?3:2);
+  assert.equal(scene.leaves.length,layout.length);assert.equal(scene.posts.length,0);assert.equal(scene.labels.filter(l=>l.role==='track').length,layout.includes('M')?3:2);
   assert.equal(scene.shapes.filter(s=>s.role==='track-panel').length,layout.length);
   assert.equal(scene.shapes.filter(s=>s.role==='louver').length,r.louversPerPanel*layout.length);
   for(const d of scene.shapes.filter(s=>s.role==='divider')){const p=scene.leaves.find(p=>p.number===d.section);assert.ok(d.points[0][0]>p.x);assert.ok(d.points[1][0]<p.x+p.w);}
@@ -136,3 +137,26 @@ test('one quote can mix a standard single panel with bypass and repeated bypass 
  const {job}=await f.run('job-get',{id:order.id});assert.equal(job.openings.length,3);assert.deepEqual(job.openings[0].result,original);
  for(const o of job.openings.slice(1)){assert.equal(o.input.sliding.layout,'FB');assert.equal(o.result.parts.find(p=>p.name==='Stile · flat').quantity,4);close(o.result.panelHeight,87.125*25.4);}
 });
+
+ test('panel schedule preserves exact sizes and quantities and hands each layout left to right',()=>{
+  const expected={2:['Left','Right'],3:['Left','Right','Right'],4:['Left','Left','Right','Right'],6:['Left','Left','Left','Right','Right','Right']};
+  for(const layout of Object.values(SLIDING_LAYOUTS).flat()){
+   const o=panel(layout,{mount:'O',quantity:2}),r=calculate(o),schedule=slidingPanelSchedule(o,r),g=slidingGeometry(o);
+   assert.deepEqual(schedule.map(p=>p.tiltPosition),expected[layout.length]);
+   assert.equal(schedule.map(p=>p.track).join(''),layout);
+   assert.equal(schedule.reduce((n,p)=>n+p.quantity,0),layout.length*2);
+   for(const p of schedule){close(p.width,g.panelWidth*25.4);close(p.height,87.125*25.4);assert.equal(p.quantity,2);}
+   const drawingLabels=drawing(o).labels.filter(l=>l.role==='panel');
+   assert.deepEqual(drawingLabels.map(l=>l.tiltPosition),expected[layout.length]);
+   assert.deepEqual(drawingLabels.map(l=>l.panel),schedule.map(p=>p.number));
+   assert.match(slidingPanelTable(o,r),new RegExp(`${layout.length*2} panels total`));
+   assert.match(slidingPanelTable(o,r),/87 1\/8/);
+   for(const [tilt,position] of [['Front','Center'],['Smart','Internal']])assert.ok(slidingPanelSchedule({...o,tilt}).every(p=>p.tiltPosition===position));
+  }
+ });
+ test('finished panel schedules fit alongside cutting and drilling on one page per sliding opening',async()=>{
+  const openings=Object.values(SLIDING_LAYOUTS).flat().map(layout=>panel(layout,{width:72,mount:'O',quantity:2,divider:60.625,id:layout}));
+  for(const units of ['in','mm']){
+   const pdf=await PDFDocument.load(await createPDF({name:'Panel schedule',openings},{units}));assert.equal(pdf.getPageCount(),openings.length);
+  }
+ });

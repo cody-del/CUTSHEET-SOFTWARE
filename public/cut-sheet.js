@@ -16,7 +16,7 @@ export function cutSheetFacts(o,result,{measurement=String,length=n=>n.toFixed(2
     const g=slidingGeometry(o);
     return [
       ['Entered width × height',`${measurement(o.width)} × ${measurement(o.height)} ${inputUnits}`],
-      ['Quantity & layout',`${o.quantity} ${o.quantity===1?'unit':'units'} · ${g.count} panels each · ${slidingCode(o)}`],
+      ['Quantity & layout',`${g.count*o.quantity} panels total · ${o.quantity} ${o.quantity===1?'unit':'units'} × ${g.count} · ${slidingCode(o)}`],
       ['Each panel · no frame',`${length(g.panelWidth*25.4)} × ${length(g.panelHeight*25.4)} ${units}`],
       ['Mount & overlap',`${o.mount==='I'?'Inside · no wall overlap':'Outside · 1 1/2 in each wall'} · 1 1/2 in between tracks`],
       ['Finish & louvers',`${{W:'White',OW:'Off-white',SC:'Swiss coffee'}[o.color]} · ${o.louver} in`],

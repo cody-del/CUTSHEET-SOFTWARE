@@ -2,6 +2,8 @@ import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {blockingWarnings} from './public/manufacturing-help.js';
 import {drawing} from './public/layouts.js';
 import {cutSheetFacts,louverSummary,machiningLabel,firstLouverHole} from './public/cut-sheet.js';
+import {isSliding,slidingPanelSchedule} from './public/sliding.js';
+import {panelDimension,trackName} from './public/sliding-panels.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {calculate,combinedParts,ValidationError,configuration} from './calculations.mjs';
 const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
@@ -69,13 +71,28 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const tone=hex=>{const v=parseInt(hex.slice(1),16);return hex.length===4?rgb(((v>>8)&15)/15,((v>>4)&15)/15,(v&15)/15):rgb((v>>16)/255,((v>>8)&255)/255,(v&255)/255);};
     for(const s of scene.shapes){if(s.kind==='line')page.drawLine({start:{x:dx+s.a[0]*scale,y:dy-s.a[1]*scale},end:{x:dx+s.b[0]*scale,y:dy-s.b[1]*scale},thickness:s.weight*scale,color:tone(s.tone)});
       else page.drawSvgPath(s.points.map((p,i)=>`${i?'L':'M'} ${p[0]} ${p[1]}`).join(' ')+' Z',{x:dx,y:dy,scale,color:tone(s.fill),borderColor:tone(s.tone),borderWidth:s.weight});}
-    for(const label of scene.labels||[])text(label.text,dx+label.x*scale,dy-label.y*scale,label.size*scale,regular,muted);
+    for(const label of scene.labels||[])text(label.text,dx+label.x*scale-(label.role==='panel'?regular.widthOfTextAtSize(ascii(label.text),label.size*scale)/2:0),dy-label.y*scale,label.size*scale,regular,muted);
     wrap(louverSummary(result),w,8).forEach((l,i)=>text(l,x+(w-regular.widthOfTextAtSize(ascii(l),8))/2,top-h-5-i*10,8,regular,muted));
   }
   function tableColumns(w,small,isCombined){
     if(isCombined)return {name:161,qty:175,cut:230,cutCheck:302,partialCheck:355,refs:392,refsWidth:w-400};
     if(small)return {name:w-166,qty:w-154,cut:w-122,cutCheck:w-68,partialCheck:w-25};
     return {name:w*.48-17,qty:w*.48,cut:w*.59,cutCheck:w-107,partialCheck:w-42};
+  }
+  function finishedPanels(o,result){
+    if(!isSliding(o))return;
+    const panels=slidingPanelSchedule(o,result),total=panels.reduce((sum,p)=>sum+p.quantity,0),rowHeight=17;
+    ensure(52+rowHeight*panels.length,'Finished panels');
+    text(`FINISHED PANELS - ${total} total`,margin,y-8,8,bold);y-=13;
+    text(`Left to right, viewed from inside the room. Qty includes all ${o.quantity} ${o.quantity===1?'unit':'units'}.`,margin,y-8,7,regular,muted);y-=17;
+    const columns=[0,49,134,258,386,449];
+    rect(margin,y-18,width,18,pale);
+    ['PANEL','TRACK',`WIDTH (${units})`,`HEIGHT (${units})`,'QTY','TILT POSITION'].forEach((label,i)=>text(label,margin+columns[i]+7,y-12,7,bold));y-=18;
+    for(const p of panels){
+      [p.number,trackName(p.track),panelDimension(p.width,units),panelDimension(p.height,units),p.quantity,p.tiltPosition].forEach((value,i)=>text(value,margin+columns[i]+7,y-12,8,i===5?bold:regular));
+      page.drawLine({start:{x:margin,y:y-rowHeight},end:{x:margin+width,y:y-rowHeight},thickness:.4,color:line});y-=rowHeight;
+    }
+    y-=10;
   }
   function tableHeader(x,w,yy,small=false,isCombined=false){
     const c=tableColumns(w,small,isCombined);rect(x,yy-19,w,19,ink);
@@ -218,6 +235,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const parts=[...grouped.filter(p=>!p.name.startsWith('Stile')),...stiles].sort((a,b)=>a.name.localeCompare(b.name)||b.length-a.length);
     partTables(parts.map(p=>({...p,profile:`${COLORS[p.color]}   ${p.profile}`})),true);
     for(const {o,result}of results){
+      if(isSliding(o)){ensure(75+17*o.sliding.layout.length);paragraph(o.name,{boldText:true});finishedPanels(o,result);}
       const notes=[o.divisionMode==='split'?'Split tilt-rod mode':'',Number.isFinite(result.gap)?`Light gap ${length(result.gap)} ${units}`:'',o.tposts?`${configuration(o)}; post centerlines ${o.tposts.positions.map(v=>length(v*25.4)).join(', ')} ${units}`:'',o.notes].filter(Boolean);
       if(notes.length)paragraph(`${o.name}: ${notes.join('. ')}`);
     }
@@ -234,6 +252,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     y-=5;
     if(o.tposts)paragraph(`${o.tposts.construction==='two-piece'?'Two-piece':'One-piece'} posts. Centerlines from left (${units}): ${o.tposts.positions.map(v=>length(v*25.4)).join('   ')}. Sections numbered left to right.`);
     if(o.divider)paragraph(`${o.divisionMode==='split'?'Split':'Divider'} input from bottom: ${length(o.divider*25.4)} ${units}.`);
+    finishedPanels(o,result);
     const machining=[...(result.hinges.length?[['Hinges from stile end',result.hinges.map(n=>formatPrintLength(n,units,{hinge:true})).join(', ')]]:[]),...result.machining.map(m=>[machiningLabel(m.label),length(m.value)])];
     const machiningOptions={columns:machining.length>6?3:2,compact:true,dense:result.parts.length>12};
     const paragraphHeight=(value,size=8.5)=>wrap(value,width,size).length*(size+4)+3;
