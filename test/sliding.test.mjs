@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {calculate,validateOpening} from '../calculations.mjs';
 import {SLIDING_LAYOUTS,slidingGeometry,setSliding,slidingPanelSchedule} from '../public/sliding.js';
-import {slidingPanelTable} from '../public/sliding-panels.js';
+import {slidingPanelTable,panelDimension} from '../public/sliding-panels.js';
 import {blockingWarnings} from '../public/manufacturing-help.js';
 import {drawing,drawingSVG} from '../public/layouts.js';
 import {cutSheetFacts} from '../public/cut-sheet.js';
@@ -73,7 +73,7 @@ test('sliding PDFs keep each opening on one page and distinguish entered and fin
  const openings=['FB','FMB','FFBB','FFMMBB'].flatMap(layout=>['I','O'].map(mount=>panel(layout,{id:layout+mount,mount})));
  for(const units of ['mm','in']){const pdf=await PDFDocument.load(await createPDF({name:'Sliding preview',openings},{units}));assert.equal(pdf.getPageCount(),openings.length);}
  const svg=drawingSVG(panel('FFBB',{mount:'O'}),{widthLabel:'96 in',heightLabel:'90 in'});assert.match(svg,/99 in overall/);assert.match(svg,/87 1\/8 in panel/);
- const facts=cutSheetFacts(openings[0],calculate(openings[0]));assert.match(facts[0][1],/96 × 90/);assert.match(facts[2][1],/2212.97/);assert.match(facts[6][1],/2 7\/8/);
+ const facts=cutSheetFacts(openings[0],calculate(openings[0]));assert.match(facts[0][1],/96 × 90/);assert.equal(facts[2][1],'48 3/4 × 87 1/8 in');assert.match(facts[6][1],/2 7\/8/);
 });
 async function setup(t){const dir=await mkdtemp(join(tmpdir(),'sliding-workspace-'));t.after(()=>rm(dir,{recursive:true,force:true}));const path=join(dir,'state.json'),password='sliding-test-password',secret='sliding-test-secret-more-than-32-characters';const service=createShopService({store:fileStore(path),password,secret});const owner={owner:(await service.run('login',{password})).token},run=(op,data={})=>service.run(op,data,owner);return {service,run,path,password,secret,owner};}
 test('sliding drafts persist across instances, release, reach workers and revise with height deducted once',async t=>{
@@ -159,4 +159,15 @@ test('one quote can mix a standard single panel with bypass and repeated bypass 
   for(const units of ['in','mm']){
    const pdf=await PDFDocument.load(await createPDF({name:'Panel schedule',openings},{units}));assert.equal(pdf.getPageCount(),openings.length);
   }
+ });
+
+ test('finished panel fractions are exact and independent of millimeter cut sizes',()=>{
+  for(const [inches,label] of [[87.125,'87 1/8'],[19.125,'19 1/8'],[19.15625,'19 5/32'],[26+1/3,'26 1/3'],[13+1/48,'13 1/48'],[36,'36'],[.625,'5/8']])assert.equal(panelDimension(inches*25.4),label);
+  assert.equal(panelDimension(null),'—');
+  assert.equal(panelDimension(19.123456*25.4),'19.123456');
+  const o=panel('FFBB',{width:72,mount:'O'}),r=calculate(o),before=structuredClone(r);
+  const html=slidingPanelTable(o,r);
+  assert.match(html,/Width \(in\)/);assert.match(html,/Height \(in\)/);assert.match(html,/19 1\/8/);assert.match(html,/87 1\/8/);assert.doesNotMatch(html,/Width \(mm\)/);
+  const facts=cutSheetFacts(o,r,{units:'mm'});assert.equal(facts[2][1],'19 1/8 × 87 1/8 in');
+  assert.deepEqual(r,before);close(r.parts.find(p=>p.name==='Stile · flat').length,2212.975);
  });

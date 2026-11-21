@@ -87,9 +87,9 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     text(`Left to right, viewed from inside the room. Qty includes all ${o.quantity} ${o.quantity===1?'unit':'units'}.`,margin,y-8,7,regular,muted);y-=17;
     const columns=[0,49,134,258,386,449];
     rect(margin,y-18,width,18,pale);
-    ['PANEL','TRACK',`WIDTH (${units})`,`HEIGHT (${units})`,'QTY','TILT POSITION'].forEach((label,i)=>text(label,margin+columns[i]+7,y-12,7,bold));y-=18;
+    ['PANEL','TRACK','WIDTH (in)','HEIGHT (in)','QTY','TILT POSITION'].forEach((label,i)=>text(label,margin+columns[i]+7,y-12,7,bold));y-=18;
     for(const p of panels){
-      [p.number,trackName(p.track),panelDimension(p.width,units),panelDimension(p.height,units),p.quantity,p.tiltPosition].forEach((value,i)=>text(value,margin+columns[i]+7,y-12,8,i===5?bold:regular));
+      [p.number,trackName(p.track),panelDimension(p.width),panelDimension(p.height),p.quantity,p.tiltPosition].forEach((value,i)=>text(value,margin+columns[i]+7,y-12,8,i===5?bold:regular));
       page.drawLine({start:{x:margin,y:y-rowHeight},end:{x:margin+width,y:y-rowHeight},thickness:.4,color:line});y-=rowHeight;
     }
     y-=10;
