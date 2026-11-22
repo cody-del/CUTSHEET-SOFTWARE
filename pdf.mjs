@@ -2,8 +2,9 @@ import {supportsCutSheets,CUT_SHEETS_ONLY} from './public/products.js';
 import {blockingWarnings} from './public/manufacturing-help.js';
 import {drawing} from './public/layouts.js';
 import {cutSheetFacts,louverSummary,machiningLabel,firstLouverHole} from './public/cut-sheet.js';
-import {isSliding,slidingPanelSchedule} from './public/sliding.js';
-import {panelDimension,trackName} from './public/sliding-panels.js';
+import {isSliding} from './public/sliding.js';
+import {productionCheckLabel} from './public/shop-state.js';
+import {finishedPanelLines} from './public/sliding-panels.js';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import {calculate,combinedParts,ValidationError,configuration} from './calculations.mjs';
 const COLORS={W:'White',OW:'Off-white',SC:'Swiss coffee'};
@@ -80,19 +81,13 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     return {name:w*.48-17,qty:w*.48,cut:w*.59,cutCheck:w-107,partialCheck:w-42};
   }
   function finishedPanels(o,result){
-    if(!isSliding(o))return;
-    const panels=slidingPanelSchedule(o,result),total=panels.reduce((sum,p)=>sum+p.quantity,0),rowHeight=17;
-    ensure(52+rowHeight*panels.length,'Finished panels');
-    text(`FINISHED PANELS - ${total} total`,margin,y-8,8,bold);y-=13;
-    text(`Left to right, viewed from inside the room. Qty includes all ${o.quantity} ${o.quantity===1?'unit':'units'}.`,margin,y-8,7,regular,muted);y-=17;
-    const columns=[0,49,134,258,386,449];
-    rect(margin,y-18,width,18,pale);
-    ['PANEL','TRACK','WIDTH (in)','HEIGHT (in)','QTY','TILT POSITION'].forEach((label,i)=>text(label,margin+columns[i]+7,y-12,7,bold));y-=18;
-    for(const p of panels){
-      [p.number,trackName(p.track),panelDimension(p.width),panelDimension(p.height),p.quantity,p.tiltPosition].forEach((value,i)=>text(value,margin+columns[i]+7,y-12,8,i===5?bold:regular));
-      page.drawLine({start:{x:margin,y:y-rowHeight},end:{x:margin+width,y:y-rowHeight},thickness:.4,color:line});y-=rowHeight;
+    for(const summary of finishedPanelLines(o,result)){
+      const lines=wrap('Panel size: '+summary,width-20,9,bold),height=lines.length*13+16;
+      ensure(height+10,'Finished panels');
+      rect(margin,y-height,width,height,pale,true);
+      lines.forEach((value,i)=>text(value,margin+10,y-16-i*13,9,bold));
+      y-=height+10;
     }
-    y-=10;
   }
   function tableHeader(x,w,yy,small=false,isCombined=false){
     const c=tableColumns(w,small,isCombined);rect(x,yy-19,w,19,ink);
@@ -206,7 +201,7 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
   function completionLayout(openings){
     const tilts=[...new Set(openings.map(o=>o.tilt==='Smart'?'Smart View':`${o.tilt} tilt`))].join(' / ');
     const gap=5,w=(width-gap*5)/6;
-    const labels=[['Louvers notched',tilts],['Stiles capped'],['Louvers capped'],['Stiles and rails bored'],['Panels built and pressed'],['Hinged / complete']]
+    const labels=[['Louvers notched',tilts],['Stiles capped'],['Louvers capped'],['Stiles and rails bored'],['Panels built and pressed'],[productionCheckLabel('hinging',openings)]]
       .map(lines=>lines.flatMap(label=>wrap(label,w-12,8,bold)));
     const height=Math.max(44,...labels.map(lines=>lines.length*9+22));
     return {gap,w,labels,height};
@@ -235,18 +230,18 @@ export async function createPDF(job,{combined=false,units='mm'}={}){
     const parts=[...grouped.filter(p=>!p.name.startsWith('Stile')),...stiles].sort((a,b)=>a.name.localeCompare(b.name)||b.length-a.length);
     partTables(parts.map(p=>({...p,profile:`${COLORS[p.color]}   ${p.profile}`})),true);
     for(const {o,result}of results){
-      if(isSliding(o)){ensure(75+17*o.sliding.layout.length);paragraph(o.name,{boldText:true});finishedPanels(o,result);}
+      if(isSliding(o)){ensure(70);paragraph(o.name,{boldText:true});finishedPanels(o,result);}
       const notes=[o.divisionMode==='split'?'Split tilt-rod mode':'',Number.isFinite(result.gap)?`Light gap ${length(result.gap)} ${units}`:'',o.tposts?`${configuration(o)}; post centerlines ${o.tposts.positions.map(v=>length(v*25.4)).join(', ')} ${units}`:'',o.notes].filter(Boolean);
       if(notes.length)paragraph(`${o.name}: ${notes.join('. ')}`);
     }
     completionChecklist(job.openings);
   }else for(let index=0;index<results.length;index++){
     const {o,result}=results[index];openingLabel=`${String(index+1).padStart(2,'0')}  ${o.name||'Untitled opening'}`;newPage(openingLabel);
-    const firstHole=firstLouverHole(result),summary=cutSheetFacts(o,result,{length,units}),top=y;
+    const firstHole=firstLouverHole(result),summary=cutSheetFacts(o,result,{length,units}),basis=summary.find(([label])=>label==='Measurement type')[1],top=y;
     // Keep the drilling datum next to quantity without adding height to a
     // densely populated T-post page. Preserve the input basis with dimensions.
     facts([summary[1],['Whole distance',firstHole===null?'Not available':length(firstHole)+' '+units],
-      [`${summary[0][0]} · ${summary[6][1]}`,summary[0][1]],...summary.slice(2,6),summary[7]],
+      [`${summary[0][0]} · ${basis}`,summary[0][1]],...summary.slice(2).filter(([label])=>label!=='Measurement type')],
       {w:350,compact:true,dense:result.parts.length>12});
     schematic(o,result,397,top,183,Math.min(130,top-y-15));
     y-=5;

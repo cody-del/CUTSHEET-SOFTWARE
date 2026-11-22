@@ -3,6 +3,17 @@ import {EWF_ID,nextEwf} from './elegant.js';
 import {BROADLEAF_ID,nextBroadleaf} from './broadleaf.js';
 import {isSliding,setSliding} from './sliding.js';
 
+// A duplicate keeps every line-specific value, including nested product options
+// and a manual unit price. Its position supplies the new displayed line number.
+export function duplicateQuoteLine(quote,sourceId,newId){
+  const index=quote.openings.findIndex(line=>line.id===sourceId);
+  if(index<0)throw new Error('Select a line to duplicate.');
+  const copy={...structuredClone(quote.openings[index]),id:newId};
+  quote.openings.splice(index+1,0,copy);
+  if(Object.hasOwn(quote.unitPrices??{},sourceId))quote.unitPrices[newId]=quote.unitPrices[sourceId];
+  return copy;
+}
+
 // Repeat product choices, never an opening's measurements or custom price.
 export function nextQuoteLine(previous,quote,defaults,productPricing={}){
   const {id,name}=defaults;

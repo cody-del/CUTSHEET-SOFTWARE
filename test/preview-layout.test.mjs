@@ -4,6 +4,8 @@ import {PDFDocument,decodePDFRawStream} from 'pdf-lib';
 import {calculate} from '../calculations.mjs';
 import {createPDF,formatPrintLength} from '../pdf.mjs';
 import {drawing} from '../public/layouts.js';
+import {setSliding} from '../public/sliding.js';
+import {productionCheckLabel} from '../public/shop-state.js';
 import {printedReferences} from './printed-reference-cases.mjs';
 
 const example={...printedReferences[1].opening,name:'Opening 1',width:71,height:63.375,frame:'ZF',sides:'3W',sizeMethod:'W',divider:25};
@@ -12,7 +14,7 @@ const large={...printedReferences[2].opening,width:150,height:76.25,divider:30,t
 function pageTextRuns(pdf,page){
   const stream=page.node.Contents().asArray().map(ref=>Buffer.from(decodePDFRawStream(pdf.context.lookup(ref)).decode()).toString()).join('\n');
   return [...stream.matchAll(/BT\n([\s\S]*?)\nET/g)].map(([,block])=>{
-    const position=block.match(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/),value=block.match(/<([\da-f]+)> Tj/i);
+    const position=block.match(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/),value=block.match(/<([\da-f]*)> Tj/i);
     return {x:Number(position[1]),y:Number(position[2]),text:Buffer.from(value[1],'hex').toString('latin1')};
   });
 }
@@ -112,3 +114,21 @@ test('expanded parts lists leave room for notes and the checklist with one throu
     });
   }
 });
+
+ test('printed final checks distinguish regular and T-post shutters from bypass and tripass',async()=>{
+  const standard={...printedReferences[1].opening},tpost={...printedReferences[2].opening};
+  const sliding={id:'sliding',name:'Sliding',width:96,height:90,quantity:1,mount:'I',louver:4,color:'W',tilt:'Back',divider:0};
+  const bypass=setSliding(sliding,'FB'),tripass=setSliding({...sliding,id:'tripass'},'FFMMBB');
+  const inputs=[standard,tpost,bypass,tripass];
+  const pdf=await PDFDocument.load(await createPDF({name:'Final assembly',openings:inputs}));
+  assert.equal(pdf.getPageCount(),4);
+  for(let i=0;i<inputs.length;i++){
+   const text=pageTextRuns(pdf,pdf.getPage(i)).map(r=>r.text).join(' ');
+   if(i<2){assert.match(text,/Hinged \/ complete/);assert.doesNotMatch(text,/Track and Valance/);}
+   else{assert.match(text,/Track and Valance/);assert.doesNotMatch(text,/Hinged \/ complete/);}
+  }
+  assert.equal(productionCheckLabel('hinging',[{input:tripass}]),'Track and Valance');
+  const combined=await PDFDocument.load(await createPDF({name:'Mixed assembly',openings:[standard,tripass]},{combined:true}));
+  const text=combined.getPages().flatMap(p=>pageTextRuns(combined,p).map(r=>r.text)).join(' ');
+  assert.match(text,/Hinged \/ complete \+ Track and Valance/);
+ });

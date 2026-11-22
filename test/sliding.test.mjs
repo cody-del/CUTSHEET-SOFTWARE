@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {calculate,validateOpening} from '../calculations.mjs';
 import {SLIDING_LAYOUTS,slidingGeometry,setSliding,slidingPanelSchedule} from '../public/sliding.js';
-import {slidingPanelTable,panelDimension} from '../public/sliding-panels.js';
+import {slidingPanelTable,panelDimension,finishedPanelLines,groupFinishedPanels} from '../public/sliding-panels.js';
 import {blockingWarnings} from '../public/manufacturing-help.js';
 import {drawing,drawingSVG} from '../public/layouts.js';
 import {cutSheetFacts} from '../public/cut-sheet.js';
@@ -73,7 +73,7 @@ test('sliding PDFs keep each opening on one page and distinguish entered and fin
  const openings=['FB','FMB','FFBB','FFMMBB'].flatMap(layout=>['I','O'].map(mount=>panel(layout,{id:layout+mount,mount})));
  for(const units of ['mm','in']){const pdf=await PDFDocument.load(await createPDF({name:'Sliding preview',openings},{units}));assert.equal(pdf.getPageCount(),openings.length);}
  const svg=drawingSVG(panel('FFBB',{mount:'O'}),{widthLabel:'96 in',heightLabel:'90 in'});assert.match(svg,/99 in overall/);assert.match(svg,/87 1\/8 in panel/);
- const facts=cutSheetFacts(openings[0],calculate(openings[0]));assert.match(facts[0][1],/96 × 90/);assert.equal(facts[2][1],'48 3/4 × 87 1/8 in');assert.match(facts[6][1],/2 7\/8/);
+ const facts=cutSheetFacts(openings[0],calculate(openings[0]));assert.match(facts[0][1],/96 × 90/);assert.match(finishedPanelLines(openings[0])[0],/48 3\/4" W × 87 1\/8" H/);assert.match(facts.find(([label])=>label==='Measurement type')[1],/2 7\/8/);
 });
 async function setup(t){const dir=await mkdtemp(join(tmpdir(),'sliding-workspace-'));t.after(()=>rm(dir,{recursive:true,force:true}));const path=join(dir,'state.json'),password='sliding-test-password',secret='sliding-test-secret-more-than-32-characters';const service=createShopService({store:fileStore(path),password,secret});const owner={owner:(await service.run('login',{password})).token},run=(op,data={})=>service.run(op,data,owner);return {service,run,path,password,secret,owner};}
 test('sliding drafts persist across instances, release, reach workers and revise with height deducted once',async t=>{
@@ -149,7 +149,7 @@ test('one quote can mix a standard single panel with bypass and repeated bypass 
    const drawingLabels=drawing(o).labels.filter(l=>l.role==='panel');
    assert.deepEqual(drawingLabels.map(l=>l.tiltPosition),expected[layout.length]);
    assert.deepEqual(drawingLabels.map(l=>l.panel),schedule.map(p=>p.number));
-   assert.match(slidingPanelTable(o,r),new RegExp(`${layout.length*2} panels total`));
+   assert.match(slidingPanelTable(o,r),new RegExp(`Qty ${layout.length*2}`));
    assert.match(slidingPanelTable(o,r),/87 1\/8/);
    for(const [tilt,position] of [['Front','Center'],['Smart','Internal']])assert.ok(slidingPanelSchedule({...o,tilt}).every(p=>p.tiltPosition===position));
   }
@@ -167,7 +167,24 @@ test('one quote can mix a standard single panel with bypass and repeated bypass 
   assert.equal(panelDimension(19.123456*25.4),'19.123456');
   const o=panel('FFBB',{width:72,mount:'O'}),r=calculate(o),before=structuredClone(r);
   const html=slidingPanelTable(o,r);
-  assert.match(html,/Width \(in\)/);assert.match(html,/Height \(in\)/);assert.match(html,/19 1\/8/);assert.match(html,/87 1\/8/);assert.doesNotMatch(html,/Width \(mm\)/);
-  const facts=cutSheetFacts(o,r,{units:'mm'});assert.equal(facts[2][1],'19 1/8 × 87 1/8 in');
+  assert.match(html,/&quot; W/);assert.match(html,/&quot; H/);assert.match(html,/19 1\/8/);assert.match(html,/87 1\/8/);assert.doesNotMatch(html,/Width \(mm\)/);
+  const facts=cutSheetFacts(o,r,{units:'mm'});assert.ok(facts.every(([label])=>label!=='Each panel · no frame'));
+  assert.deepEqual(finishedPanelLines(o,r),['19 1/8" W × 87 1/8" H · Qty 4 · Tilt: 2 Left / 2 Right']);
   assert.deepEqual(r,before);close(r.parts.find(p=>p.name==='Stile · flat').length,2212.975);
+ });
+
+ test('compact panel summary counts tilt positions across units without mixing different sizes',()=>{
+  for(const [layout,left,right] of [['FB',1,1],['FMB',1,2],['FFBB',2,2],['FFMMBB',3,3]]){
+   const o=panel(layout,{quantity:2});
+   assert.equal(finishedPanelLines(o).length,1);
+   assert.match(finishedPanelLines(o)[0],new RegExp(`Qty ${layout.length*2} · Tilt: ${left*2} Left / ${right*2} Right`));
+   assert.doesNotMatch(slidingPanelTable(o),/<table|Track|Front|Middle|Back/);
+  }
+  assert.match(finishedPanelLines(panel('FB',{tilt:'Front'}))[0],/Tilt: 2 Center$/);
+  assert.match(finishedPanelLines(panel('FB',{tilt:'Smart'}))[0],/Tilt: 2 Internal$/);
+  assert.deepEqual(groupFinishedPanels([
+   {width:500,height:2000,quantity:2,tiltPosition:'Left'},
+   {width:500,height:2000,quantity:2,tiltPosition:'Right'},
+   {width:501,height:2000,quantity:1,tiltPosition:'Right'}
+  ]),[{width:500,height:2000,quantity:4,tilts:{Left:2,Right:2}},{width:501,height:2000,quantity:1,tilts:{Right:1}}]);
  });
