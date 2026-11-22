@@ -1,3 +1,4 @@
+import {isSliding} from './sliding.js';
 // Shared presentation helpers. Quantities and elapsed time are authoritative on the server.
 export const productionStages=[
   {key:'waiting',label:'Waiting'}, {key:'cutting',label:'Cutting'},
@@ -13,6 +14,13 @@ export const productionChecks=[
   {key:'building',label:'Panels built & pressed',stage:'building'},
   {key:'hinging',label:'Hinged / complete',stage:'hinging'}
 ];
+// Keep the saved completion key so existing checks and offline updates survive
+// this label change. Mixed printed lists must name both assembly tasks.
+export function productionCheckLabel(key,openings=[]){
+  const label=productionChecks.find(check=>check.key===key)?.label||productionStages.find(stage=>stage.key===key)?.label||key;
+  if(key!=='hinging'||!openings.some(o=>isSliding(o.input||o)))return label;
+  return openings.every(o=>isSliding(o.input||o))?'Track and Valance':`${label} + Track and Valance`;
+}
 // Older jobs recorded one Capping check. Preserve that work until a worker
 // explicitly updates either of the new independent checks.
 const recordedStatus=(record,key)=>record?.[key]?.status||

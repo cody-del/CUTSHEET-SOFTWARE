@@ -36,6 +36,21 @@
 .order-heading{margin-bottom:24px}
 .order-heading h1{font-size:calc(28px + var(--text-size-increase,0pt));line-height:1.35;overflow-wrap:anywhere}
 .order-heading h1>span{font-weight:400;color:#555;white-space:nowrap}
+.order-action-panel,.order-payments{padding:24px;margin-bottom:28px;border:1px solid #ddd;border-radius:6px;background:#fff}
+.order-action-panel{border-color:#999}
+.order-action-panel h2,.order-payments h2{margin:0 0 10px;font-size:calc(20px + var(--text-size-increase,0pt));line-height:1.4}
+.order-next-description{margin:0 0 20px;font-size:calc(14px + var(--text-size-increase,0pt));line-height:1.6;color:#555}
+.order-action-panel>.field-help{margin:-8px 0 20px}
+.order-action-panel .order-attention ul{margin:0}
+.order-payments .order-totals{margin-top:20px}
+.order-payments .form-actions{margin-top:20px}
+.order-paid{margin:20px 0 0;font-size:calc(14px + var(--text-size-increase,0pt));color:#555}
+.order-confirm-page .pricing-panel{max-width:none;padding:24px}
+.order-confirm-page .pricing-panel h2{font-size:calc(20px + var(--text-size-increase,0pt));margin:28px 0 10px}
+.order-confirm-page .fields{margin-top:18px}
+.order-confirm-next{margin-top:24px;padding-top:24px;border-top:1px solid #ddd;font-size:calc(14px + var(--text-size-increase,0pt));line-height:1.6}
+.order-confirm-next .btn{width:100%;min-height:50px;white-space:normal}
+.order-confirm-next .field-error:empty{display:none}
 .order-meta,.order-contact{font-size:calc(14px + var(--text-size-increase,0pt));line-height:1.65;color:#555;margin-top:8px;overflow-wrap:anywhere}
 .order-overview{border-block:1px solid #ddd;padding:18px 0;margin-bottom:24px}
 .order-stage{font-size:calc(14px + var(--text-size-increase,0pt));line-height:1.5;margin-bottom:16px;color:#555}
@@ -47,6 +62,7 @@
 .order-action-list{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 .order-action-list>.btn{display:flex;justify-content:flex-start;text-align:left;min-height:50px;padding:13px 20px;font-size:calc(15px + var(--text-size-increase,0pt));line-height:1.5;border-color:#aaa}
 .order-action-list>.btn:hover{background:#f5f5f5;border-color:#333}
+.order-action-list>.btn.primary{font-weight:600}
 .order-action-list>.primary:hover{background:#333;color:#fff}
 .order-more{margin-top:10px}
 .order-more>summary{display:list-item;width:fit-content;padding:12px 4px;color:#555;font-size:calc(13px + var(--text-size-increase,0pt));cursor:pointer;min-height:44px}
@@ -58,14 +74,18 @@
 .order-page .sales-section-heading h2,.order-notes h2{font-size:calc(19px + var(--text-size-increase,0pt))}
 .order-notes{margin-top:28px}
 .order-payment-history{margin-top:24px;border-top:1px solid #ddd}
-.order-payment-history>summary{padding:18px 0;min-height:48px;cursor:pointer;font-size:calc(14px + var(--text-size-increase,0pt))}
-.order-payment-history .payment-ledger{margin-top:0}
-.order-price-details{margin:0 0 32px;padding:22px 24px;border:1px solid #ddd;border-radius:6px;background:#fafafa}
-.order-price-details h2{margin:0 0 14px;font-size:calc(19px + var(--text-size-increase,0pt))}
-.order-price-details dl{margin:0}
-.order-price-details dl>div{display:flex;justify-content:space-between;gap:20px;padding:9px 0;font-size:calc(14px + var(--text-size-increase,0pt))}
-.order-price-details dl>div:last-child{margin-top:8px;padding-top:16px;border-top:1px solid #ddd;font-weight:600}
-.order-price-details dd{margin:0;font-variant-numeric:tabular-nums}
+.order-payment-history h3{margin:20px 0 8px;font-size:calc(15px + var(--text-size-increase,0pt));line-height:1.5}
+.payment-entries{list-style:none;margin:0;padding:0}
+.payment-entry{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #eee;font-size:calc(14px + var(--text-size-increase,0pt));line-height:1.6}
+.payment-entry:last-child{border-bottom:0}
+.payment-entry-details small{display:block;color:#555;overflow-wrap:anywhere}
+.payment-entry-amount{font-variant-numeric:tabular-nums;white-space:nowrap}
+.payment-entry.payment-voided .payment-entry-amount{text-decoration:line-through}
+.payment-entry .text-btn{min-height:44px;font-size:calc(12px + var(--text-size-increase,0pt));color:#666}
+@media(max-width:480px){.payment-entry{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px}.payment-entry .text-btn{grid-column:1/-1;justify-self:start;padding-left:0}.payment-entry-amount{align-self:start}}
 .order-page :is(a,button,summary):focus-visible{outline:2px solid #171717;outline-offset:4px}
 @media(max-width:640px){.order-heading h1{font-size:calc(24px + var(--text-size-increase,0pt))}.order-totals{gap:14px}.order-totals dd{font-size:calc(20px + var(--text-size-increase,0pt))}.order-page .quote-line{grid-template-columns:78px minmax(0,1fr);gap:14px}.order-page .quote-line .diagram{height:105px}.order-page .quote-line .line-price{grid-column:2;text-align:left}.order-page .simple-quote-line{grid-template-columns:minmax(0,1fr)}.order-page .simple-quote-line .line-price{grid-column:1}}
-@media(max-width:380px){.order-totals{grid-template-columns:1fr;gap:12px}.order-totals>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.order-totals dd{margin:0}.order-page .quote-line{grid-template-columns:minmax(0,1fr)}.order-page .quote-line .diagram{max-width:180px;height:140px}.order-page .quote-line .line-price{grid-column:1}}
+@media(max-width:480px){.order-totals{grid-template-columns:1fr;gap:12px}.order-totals>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.order-totals dd{margin:0}.order-page .quote-line{grid-template-columns:minmax(0,1fr)}.order-page .quote-line .diagram{max-width:180px;height:140px}.order-page .quote-line .line-price{grid-column:1}}
+@media(max-width:640px){.order-action-panel,.order-payments,.order-confirm-page .pricing-panel{padding:20px}.order-payments .form-actions>.btn{width:100%}.order-action-list>.btn{white-space:normal}}
+
+.order-sold-note{margin:0 0 20px}

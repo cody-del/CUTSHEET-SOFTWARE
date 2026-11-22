@@ -6,7 +6,7 @@ import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import {calculate,validateOpening,ValidationError} from './calculations.mjs';
 import {blockingWarnings} from './public/manufacturing-help.js';
 import {salesOperations,runSales,orderJob} from './sales-service.mjs';
-import {progress,production,productionChecks,openingCheckStatus,openingProduction} from './public/shop-state.js';
+import {progress,production,productionChecks,productionCheckLabel,openingCheckStatus,openingProduction} from './public/shop-state.js';
 import {workspaceOperations,runWorkspace} from './workspace-service.mjs';
 import {workerResponse} from './worker-view.mjs';
 import {revisionOperations,runRevision} from './job-revisions.mjs';
@@ -178,7 +178,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           if(!opening){job.production??={};for(const key of keys)job.production[key]={status:data.status,updatedAt:time,completedAt:data.status==='complete'?time:null,by:a.name};if(stage.key==='capping')delete job.production.capping;}
           if(!job.held&&data.status!=='not-started')job.cuttingStartedAt??=time;
           updateCompletion(job,time);
-          audit(job,a,`${opening?opening.input.name+' · ':''}${stage.label}: ${data.status==='complete'?'complete':data.status==='partial'?'partial':'not started'} · ${production(job).label}`,time);
+          audit(job,a,`${opening?opening.input.name+' · ':''}${productionCheckLabel(stage.key,targets)}: ${data.status==='complete'?'complete':data.status==='partial'?'partial':'not started'} · ${production(job).label}`,time);
           if(heldOrder){
             heldOrder.finishingProgress={openings:Object.fromEntries(job.openings.map(o=>[o.input.id,o.production||{}])),production:job.production,activity:job.activity};
             heldOrder.version=job.version;heldOrder.updatedAt=time;

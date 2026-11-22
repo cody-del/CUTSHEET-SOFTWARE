@@ -19,8 +19,23 @@ export function panelDimension(mm){
  return measurementInput(inches);
 }
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Group only identical finished sizes. Counts include every ordered unit.
+export function groupFinishedPanels(panels){
+ const groups=[];
+ for(const p of panels){
+  let group=groups.find(g=>g.width===p.width&&g.height===p.height);
+  if(!group){group={width:p.width,height:p.height,quantity:0,tilts:{}};groups.push(group);}
+  group.quantity+=p.quantity;
+  group.tilts[p.tiltPosition]=(group.tilts[p.tiltPosition]||0)+p.quantity;
+ }
+ return groups;
+}
+export function finishedPanelLines(o,result){
+ if(!isSliding(o))return [];
+ return groupFinishedPanels(slidingPanelSchedule(o,result)).map(p=>`${panelDimension(p.width)}" W × ${panelDimension(p.height)}" H · Qty ${p.quantity} · Tilt: ${['Left','Right','Center','Internal'].filter(side=>p.tilts[side]).map(side=>`${p.tilts[side]} ${side}`).join(' / ')}`);
+}
 export function slidingPanelTable(o,result){
- if(!isSliding(o))return '';
- const panels=slidingPanelSchedule(o,result),total=panels.reduce((sum,p)=>sum+p.quantity,0);
- return `<section class="sliding-panel-list" aria-label="Finished panels"><div class="sliding-panel-heading"><h3>Finished panels</h3><strong>${total} panels total</strong></div><p>Left to right, viewed from inside the room. Quantities include all ${o.quantity} ${o.quantity===1?'unit':'units'}.</p><div class="sliding-panel-scroll"><table><thead><tr><th scope="col">Panel</th><th scope="col">Track</th><th scope="col">Width (in)</th><th scope="col">Height (in)</th><th scope="col">Qty</th><th scope="col">Tilt position</th></tr></thead><tbody>${panels.map(p=>`<tr><th scope="row">${p.number}</th><td>${trackName(p.track)}</td><td>${escape(panelDimension(p.width))}</td><td>${escape(panelDimension(p.height))}</td><td>${p.quantity}</td><td>${p.tiltPosition}</td></tr>`).join('')}</tbody></table></div></section>`;
+ const lines=finishedPanelLines(o,result);
+ if(!lines.length)return '';
+ return `<section class="sliding-panel-list" aria-label="Finished panels">${lines.map(line=>`<p><strong>Panel size</strong><span>${escape(line)}</span></p>`).join('')}</section>`;
 }

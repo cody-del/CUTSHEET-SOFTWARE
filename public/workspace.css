@@ -215,5 +215,5 @@
 .workspace-nav-foot span{color:#d3d5d7}
 .workspace-nav :is(a,button):focus-visible{outline-color:#fff;outline-offset:3px}
 .owner-workspace .btn{border-color:#777;color:var(--workspace-charcoal)}
-.owner-workspace .btn.primary,.owner-workspace .order-action-list>.btn{background:var(--workspace-charcoal);border-color:var(--workspace-charcoal);color:#fff}
-.owner-workspace .btn.primary:hover,.owner-workspace .order-action-list>.btn:hover{background:var(--workspace-charcoal-hover);border-color:var(--workspace-charcoal-hover);color:#fff}
+.owner-workspace .btn.primary{background:var(--workspace-charcoal);border-color:var(--workspace-charcoal);color:#fff}
+.owner-workspace .btn.primary:hover{background:var(--workspace-charcoal-hover);border-color:var(--workspace-charcoal-hover);color:#fff}
