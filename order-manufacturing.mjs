@@ -1,3 +1,4 @@
+import {isOrderCompleted} from './public/order-lifecycle.js';
 import {calculate} from './calculations.mjs';
 import {blockingWarnings} from './public/manufacturing-help.js';
 import {manufacturingOpenings,hasManufacturingLines} from './public/products.js';
@@ -14,7 +15,7 @@ export function orderReadiness(order,released=false){
 }
 export function productionName(record){return [...new Set([[record.customer?.firstName,record.customer?.lastName].filter(Boolean).join(' ')||(typeof record.customer==='string'?record.customer:''),record.name].filter(Boolean))].join(' · ');}
 // Only manufacturing information is included. Payment/contact data stays with the owner.
-export function waitingShopOrders(state){return Object.values(state.orders||{}).filter(o=>!o.deletedAt&&!o.productionRemovedAt&&hasManufacturingLines(o)&&!state.jobs[o.id]).map(o=>({id:o.id,name:o.name,displayName:productionName(o),number:o.number,openingCount:orderManufacturingOpenings(o).length,createdAt:o.createdAt,version:o.version,readiness:orderReadiness(o)}));}
+export function waitingShopOrders(state){return Object.values(state.orders||{}).filter(o=>!o.deletedAt&&!isOrderCompleted(o)&&!o.productionRemovedAt&&hasManufacturingLines(o)&&!state.jobs[o.id]).map(o=>({id:o.id,name:o.name,displayName:productionName(o),number:o.number,openingCount:orderManufacturingOpenings(o).length,createdAt:o.createdAt,version:o.version,readiness:orderReadiness(o)}));}
 
 // Held cutting dimensions stay read-only; finishing work can be recorded before release.
 export function heldOrderSheet(order){

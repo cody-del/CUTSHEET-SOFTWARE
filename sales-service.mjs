@@ -1,4 +1,5 @@
 import {removedFromProduction} from './production-removal.mjs';
+import {isOrderCompleted,activeOrders} from './public/order-lifecycle.js';
 import {emptyCompanyProfile,validateCompanyProfile} from './company-profile.mjs';
 import {orderFinancials,salesFinancials} from './public/order-finance.js';
 import {orderReadiness,orderManufacturingOpenings} from './order-manufacturing.mjs';
@@ -12,7 +13,7 @@ import {calculate,validateOpening,completeOpening} from './calculations.mjs';
 import {production} from './public/shop-state.js';
 import {formatContactAddress} from './public/contact-address.js';
 
-export const salesOperations=['company-get','company-save','sales','pricing-save','sales-get','sales-delete','sales-restore','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save'];
+export const salesOperations=['company-get','company-save','sales','pricing-save','sales-get','sales-delete','sales-restore','contact-save','quote-create','quote-product','quote-save','quote-convert','order-release','order-confirm','order-payment','order-payment-void','order-specifications-save','order-complete','order-reopen'];
 export class SalesError extends Error {constructor(status,message){super(message);this.status=status;}}
 const fail=(status,message)=>{throw new SalesError(status,message);};
 const identifier=value=>{if(typeof value!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(value)||['__proto__','constructor','prototype'].includes(value))fail(400,'Invalid record identifier.');return value;};
@@ -78,7 +79,7 @@ function openings(value,record,pricingFor,allowIncomplete=false){
     return o;
   });
 }
-const summary=q=>({id:q.id,productId:productId(q),productLabel:q.productLabel,productNames:quoteProductNames(q),manufacturingOpeningCount:manufacturingOpenings(q).length,contactId:q.contactId,number:q.number,name:q.name,status:q.status,orderId:q.orderId,quoteId:q.quoteId,createdAt:q.createdAt,updatedAt:q.updatedAt,version:q.version,openingCount:q.openings.length,total:quoteTotals(q).total,unpriced:quoteTotals(q).unpriced});
+const summary=q=>({id:q.id,productId:productId(q),productLabel:q.productLabel,productNames:quoteProductNames(q),manufacturingOpeningCount:manufacturingOpenings(q).length,contactId:q.contactId,number:q.number,name:q.name,status:q.status,completedAt:q.completedAt,completedBy:q.completedBy,orderId:q.orderId,quoteId:q.quoteId,createdAt:q.createdAt,updatedAt:q.updatedAt,version:q.version,openingCount:q.openings.length,total:quoteTotals(q).total,unpriced:quoteTotals(q).unpriced});
 export async function runSales(state,operation,data,time,publish,actorName='Owner'){
   state.contacts??={};state.quotes??={};state.orders??={};state.salesCounters??={quote:0,order:0};state.pricing??={rateCents:null,minimumAreaHundredths:0,version:0};
   state.productPricing??={};
@@ -93,9 +94,9 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     const collection=state[data.kind+'s'],record=get(collection,data.id,true);current(record,data.version);
     const restoring=operation==='sales-restore';
     if(restoring?!record.deletedAt:!!record.deletedAt)fail(409,restoring?'This record is already active.':'This record is already in Deleted.');
-    if(restoring&&active(collection).length>=(data.kind==='contact'?2000:1000))fail(400,'Record capacity reached. Delete an active record before restoring this one.');
+    if(restoring&&!(data.kind==='order'&&isOrderCompleted(record))&&(data.kind==='order'?activeOrders(active(collection)):active(collection)).length>=(data.kind==='contact'?2000:1000))fail(400,'Record capacity reached. Delete an active record before restoring this one.');
     const job=data.kind==='order'?state.jobs[record.id]:null;
-    if(restoring&&job&&active(state.jobs).length>=500)fail(400,'Shop capacity reached. Delete an active order before restoring this one.');
+    if(restoring&&job&&!isOrderCompleted(record)&&active(state.jobs).filter(j=>!isOrderCompleted(state.orders[j.id])).length>=500)fail(400,'Shop capacity reached. Delete an active order before restoring this one.');
     if(restoring){delete record.deletedAt;delete record.deletedBy;}
     else{record.deletedAt=time;record.deletedBy=actorName;}
     touch(record);
@@ -191,12 +192,37 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     for(const opening of quote.openings)if(productId(lineProduct(opening,quote))===EWF_ID){try{validateEwfOpening(opening,{complete:true});}catch(e){fail(400,opening.name+': '+e.message);}}
     for(const opening of quote.openings)if(productId(lineProduct(opening,quote))===BROADLEAF_ID&&opening.broadleaf){try{validateBroadleafOpening(opening,{complete:true});}catch(e){fail(400,opening.name+': '+e.message);}}
     for(const opening of manufacturingOpenings(quote))if(!completeOpening(opening))fail(400,opening.name+': complete the measurements and post positions before creating an order.');
-    const id=randomUUID();if(active(state.orders).length>=1000)fail(400,'Order capacity reached.');
+    const id=randomUUID();if(activeOrders(active(state.orders)).length>=1000)fail(400,'Order capacity reached.');
     const order={...structuredClone(quote),productId:productId(quote),id,quoteId:quote.id,quoteNumber:quote.number,number:nextOrderNumber(state),status:'ordered',customer:structuredClone(get(state.contacts,quote.contactId,true)),createdAt:time,updatedAt:time,version:1};
     state.orders[id]=order;quote.status='ordered';quote.orderId=id;touch(quote);return {order};
   }
   const orderResult=order=>({order,financials:orderFinancials(order,quoteTotals(order).total),released:!!state.jobs[order.id],readiness:orderReadiness(order,!!state.jobs[order.id]),releaseIssue:order.releaseIssue||''});
+  if(operation==='order-complete'||operation==='order-reopen'){
+    const order=get(state.orders,data.id);current(order,data.version);
+    const reopening=operation==='order-reopen',job=state.jobs[order.id];
+    if(reopening?!isOrderCompleted(order):isOrderCompleted(order))fail(409,reopening?'This order is already active.':'This order is already completed.');
+    if(!reopening){
+      if(!order.finance?.confirmedAt)fail(400,'Confirm this order’s sale total first.');
+      const contact=state.contacts[order.contactId];
+      if(!contact||contact.deletedAt)fail(409,'Restore this customer in Contacts → Deleted before completing the order.');
+      order.status='completed';order.completedAt=time;order.completedBy=actorName;
+    }else{
+      if(activeOrders(active(state.orders)).length>=1000)fail(400,'Active order capacity reached. Complete another order before reopening this one.');
+      if(job&&active(state.jobs).filter(j=>!isOrderCompleted(state.orders[j.id])).length>=500)fail(400,'Shop capacity reached. Complete another order before reopening this one.');
+      order.status=job?'in-production':'ordered';delete order.completedAt;delete order.completedBy;
+    }
+    const message=reopening?'Order reopened; saved progress kept and timer remains paused.':'Order completed; saved under the customer and removed from active Orders and Production.';
+    order.completionHistory=[...(order.completionHistory||[]),{at:time,by:actorName,action:reopening?'reopened':'completed'}].slice(-1000);
+    if(job){
+      if(job.startedAt){job.elapsedMs=(job.elapsedMs||0)+Math.max(0,time-job.startedAt);job.startedAt=null;}
+      // Previously queued iPad work must be reviewed after an order is closed.
+      if(!reopening)job.progressEpoch=(job.progressEpoch||0)+1;
+      job.activity??=[];job.activity.unshift({at:time,by:actorName,message});job.activity=job.activity.slice(0,1000);touch(job);
+    }
+    touch(order);return orderResult(order);
+  }
   async function sendConfirmedOrder(order){
+    if(isOrderCompleted(order))fail(409,'Reopen this completed order from its contact before sending it to Production.');
     if(!hasManufacturingLines(order)||state.jobs[order.id])return;
     const ready=orderReadiness(order);if(ready.status==='blocked'){order.releaseIssue=ready.issues.map(i=>i.openingName+': '+i.message).join(' ');return;}
     try{await publish({job:orderJob(order)});order.status='in-production';delete order.releaseIssue;}
@@ -232,7 +258,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     payment.voidReason=text(data.reason,'correction reason',500,true);payment.voidedAt=time;touch(order);return orderResult(order);
   }
   if(operation==='order-specifications-save'){
-    const order=get(state.orders,data.id);requireCutSheets(order);current(order,data.version);
+    const order=get(state.orders,data.id);requireCutSheets(order);if(isOrderCompleted(order))fail(409,'Reopen this completed order before changing measurements.');current(order,data.version);
     if(state.jobs[order.id])fail(409,'This order is already in the shop. Its manufacturing specifications are locked.');
     const original=manufacturingOpenings(order);
     if(!Array.isArray(data.openings)||data.openings.length!==original.length)fail(400,'Keep the same ShutterSmart openings and quantities as the sold order.');
@@ -243,7 +269,7 @@ export async function runSales(state,operation,data,time,publish,actorName='Owne
     if(order.finance?.confirmedAt)await sendConfirmedOrder(order);touch(order);return orderResult(order);
   }
   if(operation==='order-release'){
-    const order=get(state.orders,data.id);requireCutSheets(order);if(state.jobs[order.id])return {job:state.jobs[order.id]};
+    const order=get(state.orders,data.id);requireCutSheets(order);if(isOrderCompleted(order))fail(409,'Reopen this completed order before sending it to Production.');if(state.jobs[order.id])return {job:state.jobs[order.id]};
     current(order,data.version);
     const result=await publish({job:{...orderJob(order),due:data.due||''},targetMinutes:data.targetMinutes,due:data.due});
     touch(order);order.status='in-production';return result;

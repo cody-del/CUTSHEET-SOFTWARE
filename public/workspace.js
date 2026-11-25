@@ -1,3 +1,4 @@
+import {activeOrders} from './order-lifecycle.js';
 import {showBackupStatus,showBackupAlert} from './backup-status.js';
 import {accountStorage,accountFetch} from './account-storage.js';
 import './auth-guard.js';
@@ -29,7 +30,7 @@ function home(){
  const {sales,board,workspace}=data,quotes=sales.quotes.filter(q=>q.status!=='ordered');
  const recent=[...quotes.map(q=>({id:q.id,at:q.updatedAt,url:q.status==='draft'?quoteBuilderURL(q):'/contacts.html#quote/'+q.id,name:label(sales.contacts.find(c=>c.id===q.contactId))||q.name,sub:q.number+' · '+q.name,next:q.status==='draft'?'Continue quote':'Review proposal'})),
   ...workspace.cutSheets.filter(x=>!x.archived).map(x=>({id:x.id,at:x.updatedAt,url:x.released?'/owner.html?job='+x.id:sheetURL(x),name:x.customer||x.name,sub:x.number+' · '+x.name,next:x.released?(x.stage==='Complete'?'View completed job':x.stage==='Waiting'?'Digital cut sheets':'Continue '+x.stage.toLowerCase()):'Continue cut sheet'})),
-  ...sales.orders.filter(o=>!o.financials?.confirmed||!o.manufacturingOpeningCount).map(o=>({id:o.id,at:o.updatedAt,url:'/contacts.html#order/'+o.id,name:label(sales.contacts.find(c=>c.id===o.contactId))||o.name,sub:o.number+' · '+o.name,next:o.financials?.confirmed?'View order':'Confirm sale & payment'}))];
+  ...activeOrders(sales.orders).filter(o=>!o.financials?.confirmed||!o.manufacturingOpeningCount).map(o=>({id:o.id,at:o.updatedAt,url:'/contacts.html#order/'+o.id,name:label(sales.contacts.find(c=>c.id===o.contactId))||o.name,sub:o.number+' · '+o.name,next:o.financials?.confirmed?'View order':'Confirm sale & payment'}))];
  const unique=[...new Map(recent.map(x=>[x.id,x])).values()].sort((a,b)=>b.at-a.at).slice(0,8);
  const attention=board.jobs.filter(j=>schedule(j,Date.now()).tone==='attention').length+(board.pendingOrders||[]).filter(o=>o.readiness?.status==='blocked').length;
  return heading()+`<div data-backup-alert hidden role="status"></div><section class="workflow-starts" aria-label="Start or continue work">
@@ -87,7 +88,7 @@ function settings(){
    <p class="settings-print-note">US Letter · portrait · one opening per page.<br>Cut lengths do not include saw-kerf allowance.</p>
   </section>
  </div>
- <section class="settings-section">
+ <section class="settings-section company-backup-settings">
   <h2>Company backup</h2><div data-backup-status role="status">Checking automatic backups…</div><p>Download customers, quotes, orders, cut sheets, production progress, saved pricing and company settings. Keep this file in a private, backed-up folder.</p>
   <div class="settings-actions"><button class="btn" id="company-backup">Download company backup</button></div>
   <p class="field-help">Passwords and shop-device connections are not included. This is a manual backup.</p>

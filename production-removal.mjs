@@ -1,3 +1,4 @@
+import {isOrderCompleted} from './public/order-lifecycle.js';
 import {hasManufacturingLines} from './public/products.js';
 import {productionName} from './order-manufacturing.mjs';
 
@@ -7,7 +8,7 @@ const removedAt=(state,id)=>state.jobs[id]?.productionRemovedAt||state.orders?.[
 export function removedProductionJobs(state){
  const records=new Map(Object.values(state.orders||{}).filter(hasManufacturingLines).map(o=>[o.id,o]));
  for(const job of Object.values(state.jobs))records.set(job.id,job);
- return [...records.values()].filter(r=>removedFromProduction(state,r.id)&&!r.deletedAt&&!state.orders?.[r.id]?.deletedAt).map(r=>({
+ return [...records.values()].filter(r=>removedFromProduction(state,r.id)&&!r.deletedAt&&!state.orders?.[r.id]?.deletedAt&&!isOrderCompleted(state.orders?.[r.id])).map(r=>({
   id:r.id,number:r.number,name:r.name,displayName:productionName(state.orders?.[r.id]||state.drafts?.[r.id]||r),version:r.version,removedAt:removedAt(state,r.id)
  })).sort((a,b)=>b.removedAt-a.removedAt);
 }
@@ -17,6 +18,7 @@ export function changeProductionRemoval(state,operation,data,actor,time){
  if(typeof data.id!=='string'||!/^[-a-zA-Z0-9_]{1,64}$/.test(data.id)||['__proto__','constructor','prototype'].includes(data.id))fail(400,'Invalid job identifier.');
  const job=state.jobs[data.id],order=state.orders?.[data.id],record=job||order;
  if(!record||record.deletedAt||order?.deletedAt||!job&&!hasManufacturingLines(order))fail(404,'This production job was not found.');
+ if(isOrderCompleted(order))fail(409,'Reopen this completed order from its contact before changing Production.');
  if(data.version!==record.version)fail(409,'This job changed on another device. Review its latest progress and try again.');
  const restoring=operation==='production-restore';
  if(restoring?!removedFromProduction(state,data.id):removedFromProduction(state,data.id))fail(409,restoring?'This job is already in Production.':'This job is already in Removed.');

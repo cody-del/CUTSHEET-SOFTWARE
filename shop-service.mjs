@@ -1,3 +1,4 @@
+import {isOrderCompleted} from './public/order-lifecycle.js';
 import {productionRemovalOperations,removedFromProduction,removedProductionJobs,changeProductionRemoval} from './production-removal.mjs';
 import {validateProgressEvent,prepareProgressSync} from './shop-sync.mjs';
 import {waitingShopOrders,heldOrderSheet,productionName} from './order-manufacturing.mjs';
@@ -37,7 +38,7 @@ function releaseJob(state,data,a,time){
   let input=data.job;if(!input||!Array.isArray(input.openings)||!input.openings.length||input.openings.length>100)fail(400,'Add 1–100 openings before sending this job to the shop.');
   const id=identifier(input.id),previous=state.jobs[id];
   if(state.orders?.[id]){
-    const order=state.orders[id];if(order.deletedAt)fail(410,'This order is in Deleted. Restore it before sending it to Production.');input=orderJob(order);
+    const order=state.orders[id];if(isOrderCompleted(order))fail(409,'Reopen this completed order from its contact before sending it to Production.');if(order.deletedAt)fail(410,'This order is in Deleted. Restore it before sending it to Production.');input=orderJob(order);
     if(!order.finance?.confirmedAt)fail(422,'Confirm the order sale total and payment before sending it to Production.');
   }
   else if(state.drafts?.[id]){const draft=state.drafts[id];if(draft.archived)fail(400,'Restore this draft before releasing it to the shop.');if(data.job.version!==draft.version)fail(409,'This draft changed on another device. Reload it before releasing.');input={id:draft.id,productId:'shuttersmart',name:draft.name,number:draft.number,notes:draft.notes,due:draft.due,openings:structuredClone(draft.openings)};}
@@ -45,7 +46,7 @@ function releaseJob(state,data,a,time){
   if(!input.openings.length)fail(400,'Add an opening before releasing this job.');
   if(!supportsCutSheets(input))fail(422,CUT_SHEETS_ONLY);
   if(previous)fail(409,'This job is already in the shop. Its released cut sheet is kept unchanged.');
-  if(Object.values(state.jobs).filter(j=>!j.deletedAt).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
+  if(Object.values(state.jobs).filter(j=>!j.deletedAt&&!isOrderCompleted(state.orders?.[j.id])).length>=500)fail(400,'This workshop has reached its 500-job capacity.');
   const seen=new Set(),openings=input.openings.map(o=>{
     identifier(o.id);if(seen.has(o.id))fail(400,'Opening IDs must be unique.');seen.add(o.id);
     text(o.name,'opening name',80);o=validateOpening(o,{shutterSizeOnly:true});const result=calculate(o);
@@ -78,7 +79,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
     return null;
   }
   function requireActor(state,cookie,owner=false){const a=actor(state,cookie);if(!a)fail(401,'Please sign in with the shop code or the owner account.');if(owner&&a.role!=='owner')fail(403,'Only the owner can do that.');return a;}
-  function jobFor(state,data){const j=state.jobs[identifier(data.id)];if(!j||j.deletedAt||state.orders?.[j.id]?.deletedAt||removedFromProduction(state,j.id))fail(404,'This shop job was removed from Production.');if(j.version!==data.version)fail(409,'This cut sheet changed on another device. Review the latest values and try again.');return j;}
+  function jobFor(state,data){const j=state.jobs[identifier(data.id)];if(isOrderCompleted(state.orders?.[data.id]))fail(409,'This order is completed. Reopen it from the customer’s contact before changing shop progress.');if(!j||j.deletedAt||state.orders?.[j.id]?.deletedAt||removedFromProduction(state,j.id))fail(404,'This shop job was removed from Production.');if(j.version!==data.version)fail(409,'This cut sheet changed on another device. Review the latest values and try again.');return j;}
   return {
     configured,
     async run(operation,data={},cookie={}) {
@@ -137,14 +138,14 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
           return {ok:true,serverTime:time};
         }
         if(operation==='jobs'||operation==='dashboard'){
-          return {jobs:Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]?.deletedAt&&!removedFromProduction(state,j.id)).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
+          return {jobs:Object.values(state.jobs).filter(j=>!j.deletedAt&&!state.orders?.[j.id]?.deletedAt&&!isOrderCompleted(state.orders?.[j.id])&&!removedFromProduction(state,j.id)).map(j=>productionView(state,j)).sort((x,y)=>y.publishedAt-x.publishedAt),serverTime:time,pendingOrders:waitingShopOrders(state),
             ...(operation==='dashboard'?{
               removedJobs:removedProductionJobs(state),
               shopAccess:shopAccessStatus(state),
               devices:Object.values(state.devices).filter(d=>!d.revoked&&d.expires>time).map(({id,name,createdAt,lastSeenAt,pendingUpdates})=>({id,name,createdAt,lastSeenAt,pendingUpdates}))}:{})};
         }
         if(operation==='job-get'){
-          const id=identifier(data.id);if(state.jobs[id]?.deletedAt||state.orders?.[id]?.deletedAt||removedFromProduction(state,id))fail(404,'This job was removed from Production.');if(state.jobs[id])return {job:productionView(state,state.jobs[id])};
+          const id=identifier(data.id);if(isOrderCompleted(state.orders?.[id]))fail(409,'This order is completed. Open it from Contacts to print saved cut sheets or reopen the order.');if(state.jobs[id]?.deletedAt||state.orders?.[id]?.deletedAt||removedFromProduction(state,id))fail(404,'This job was removed from Production.');if(state.jobs[id])return {job:productionView(state,state.jobs[id])};
           const order=state.orders?.[id];if(!order||!hasManufacturingLines(order))fail(404,'This digital cut sheet was not found.');
           return {job:heldOrderSheet(order)};
         }
@@ -156,6 +157,7 @@ export function createShopService({store,local=false,publicOwnerAccess=false,pas
         if(operation==='revoke'){const device=Object.values(state.devices).find(d=>d.id===data.deviceId);if(!device)fail(404,'Device not found.');device.revoked=true;return {ok:true};}
         if(operation==='publish')return releaseJob(state,data,a,time);
         const heldOrder=operation==='stage'&&!state.jobs[data.id]?state.orders?.[identifier(data.id)]:null;
+        if(heldOrder&&isOrderCompleted(heldOrder))fail(409,'This order is completed. Reopen it from its contact before changing shop progress.');
         if(heldOrder&&(heldOrder.deletedAt||removedFromProduction(state,heldOrder.id)||!hasManufacturingLines(heldOrder)))fail(404,'This digital cut sheet was not found.');
         if(heldOrder&&heldOrder.version!==data.version)fail(409,'This order changed on another device. Reload it before saving again.');
         const job=heldOrder?heldOrderSheet(heldOrder):jobFor(state,data);
