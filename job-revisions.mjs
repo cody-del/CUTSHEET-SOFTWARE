@@ -1,3 +1,4 @@
+import {isOrderCompleted} from './public/order-lifecycle.js';
 import {isSliding,slidingName} from './public/sliding.js';
 import {createHash} from 'node:crypto';
 import {calculate,validateOpening,configuration} from './calculations.mjs';
@@ -77,6 +78,7 @@ export function runRevision(state,operation,data,actor,time){
  const job=typeof data.id==='string'&&Object.hasOwn(state.jobs,data.id)?state.jobs[data.id]:null;
  const order=state.orders?.[data.id],draft=state.drafts?.[data.id];
  if(!job||job.deletedAt||order?.deletedAt)fail(404,'This cut sheet is no longer in Production.');
+ if(isOrderCompleted(order))fail(409,'Reopen this completed order from its contact before changing measurements.');
  if(operation==='job-revision-get')return {job:currentView(job),kind:order?'order':draft?'draft':'job'};
  const canonical=inputs(data.openings),inputHash=digest(canonical);
  // A retry after a lost response must not reset work entered on the new revision.

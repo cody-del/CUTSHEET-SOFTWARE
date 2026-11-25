@@ -5,11 +5,11 @@ export function progressTarget(job,action,payload){
  if(action==='line'){
   const line=job.openings.flatMap(o=>o.lines).find(l=>l.id===payload.lineId);
   if(!line)throw Error('This cut line is no longer on the cut sheet.');
-  return JSON.stringify([line.status,line.completed,line.shortage?.status||null,line.shortage?.note||'']);
+  return JSON.stringify([line.status,line.completed,line.shortage?.status||null,line.shortage?.note||'',...(job.progressEpoch?[job.progressEpoch]:[])]);
  }
  const opening=job.openings.find(o=>o.input.id===payload.openingId);
  if(!opening)throw Error('This opening is no longer on the cut sheet.');
- return JSON.stringify([openingCheckStatus(job,opening,payload.stage)]);
+ return JSON.stringify([openingCheckStatus(job,opening,payload.stage),...(job.progressEpoch?[job.progressEpoch]:[])]);
 }
 export function previewProgress(job,event){
  const result=structuredClone(job),p=event.payload,time=event.createdAt;

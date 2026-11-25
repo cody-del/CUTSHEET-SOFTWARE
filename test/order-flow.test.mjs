@@ -70,3 +70,15 @@ test('visible payment history preserves all entries, corrections and receipt amo
  assert.equal((html.match(/data-void-payment=/g)||[]).length,2);
  assert.doesNotMatch(html,/data-void-payment="p2"/);
 });
+
+test('order completion is visible, becomes the next step when manufacturing is finished, and history keeps PDF access',()=>{
+ const detail=fixture();detail.record.contactId='contact-a';
+ assert.match(orderActionsSection(detail),/data-action="complete-order">Complete order/);
+ detail.productionStage='complete';assert.deepEqual(primary(orderActionsSection(detail)),['Complete order']);
+ detail.record.status='completed';detail.record.completedAt=Date.parse('2026-11-24T12:00:00Z');
+ const html=orderActionsSection(detail);
+ assert.deepEqual(primary(html),['View customer history']);assert.match(html,/#contact\/contact-a/);
+ assert.match(html,/data-action="cut-pdf"/);assert.match(html,/data-action="document"/);assert.match(html,/data-action="reopen-order"/);
+ assert.doesNotMatch(html,/edit=1|data-action="release"|data-action="complete-order"|Digital cut sheets/);
+ detail.record.openings=[{productId:'other'}];assert.doesNotMatch(orderActionsSection(detail),/cut-pdf/);
+});

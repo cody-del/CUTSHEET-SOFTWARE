@@ -96,7 +96,18 @@
 
 .shop-sync-time{font-size:.875rem;color:#656565;margin:0 0 18px}.shop-sync-warning{padding:16px 20px;margin:0 0 20px;background:#fff5ce;border:1px solid #dcc573;border-radius:6px}.shop-sync-warning p{margin:6px 0 12px}.shop-device small{display:block;color:#666;margin-top:5px}
 
-.shop-code-settings p{margin-top:14px;line-height:1.6;max-width:640px}#shop-code-form .field+.field{margin-top:18px}
+/* Keep access settings inset from their card edges, like the other settings. */
+.shop-code-settings,.shop-devices{padding:28px}
+.shop-devices{margin-top:24px;border:1px solid var(--line);border-radius:8px}
+.shop-code-settings h2,.shop-devices h2{margin:0 0 8px;font-size:calc(17px + var(--text-size-increase,0pt));line-height:1.4}
+.shop-code-settings p{margin-top:14px;line-height:1.6;max-width:640px}
+.shop-devices .subheading{line-height:1.6;max-width:640px}
+.shop-device{max-width:none;align-items:center;gap:24px;padding:20px 0;line-height:1.5}
+.shop-device>span{min-width:0;overflow-wrap:anywhere}
+.shop-device .text-btn{flex-shrink:0;min-height:44px}
+#shop-code-form .field+.field{margin-top:18px}
+@media(max-width:760px){.shop-code-settings,.shop-devices{padding:20px}.shop-device{gap:16px}}
+@media(max-width:420px){.shop-device{align-items:flex-start;flex-direction:column;gap:8px}.shop-device .text-btn{padding-left:0}}
 
 /* One job header, one progress summary, and a quiet route to each checklist. */
 .shop-job-header{margin-bottom:24px}

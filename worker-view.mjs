@@ -28,7 +28,7 @@ function label(record){return 'Job '+record.number;}
 export function workerJob(job){
  const result={...pick(job,['id','number','productId','held','due','targetMinutes','publishedAt','updatedAt','version','elapsedMs','startedAt','completedAt','cuttingStartedAt','productionCompletedAt','notes']),name:label(job),displayName:label(job),activity:[],production:checks(job.production),openings:job.openings.map(openingView)};
  if(job.readiness)result.readiness=readinessView(job.readiness);
- Object.assign(result,pick(job,['revision','revisedAt']));
+ Object.assign(result,pick(job,['revision','revisedAt','progressEpoch']));
  if(job.revisionSummary)result.revisionSummary=job.revisionSummary.map(item=>pick(item,['name','resetFinishing','removed','changedLines']));
  return result;
 }
